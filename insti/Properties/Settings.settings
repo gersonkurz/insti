@@ -1,0 +1,12 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="insti.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="BaseDirectory" Type="System.String" Scope="User">
+      <Value Profile="(Default)">C:\ProgramData\PROAKT\Installations</Value>
+    </Setting>
+    <Setting Name="InstallationFile" Type="System.String" Scope="User">
+      <Value Profile="(Default)">%ProgramFiles(x86)%\PROAKT\installation.xml</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>
