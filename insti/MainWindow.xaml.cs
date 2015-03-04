@@ -54,13 +54,20 @@ namespace insti
         private void worker_DoWork(object sender, DoWorkEventArgs e)
         {
             CurrentProjectDescription = insticore.ProjectDescription.FromFile(InstallationFile);
-            if (CurrentProjectDescription != null)
+            if (CurrentProjectDescription == null)
             {
-                Console.WriteLine("Existing installation: {0}", CurrentProjectDescription);
-            }
-            else
-            {
-                Console.WriteLine("Existing installation: - None -");
+                CurrentProjectDescription = insticore.ProjectDescription.FromDefault(BaseDirectory, "UNKNOWN", "UNKNOWN");
+                if (CurrentProjectDescription != null)
+                {
+                    if( CurrentProjectDescription.Exists() )
+                    {
+                        Dispatcher.Invoke(new Action(() => Items.Add(new InstallationItem(CurrentProjectDescription, true))));
+                    }
+                    else
+                    {
+                        CurrentProjectDescription = null;
+                    }
+                }
             }
 
             foreach (string file in Directory.GetFiles(BaseDirectory))
@@ -90,24 +97,76 @@ namespace insti
             
         }
 
-        private void worker_RunWorkerCompleted(object sender,
+        private async void worker_RunWorkerCompleted(object sender,
                                                RunWorkerCompletedEventArgs e)
         {
             if( CurrentProjectDescription == null )
             {
-                BtBackup.IsEnabled = false;
+                await this.ShowMessageAsync("Error", "Broken insti-installation: you have no installation, and no default description file: aborting");
+                Close();
+            }
+
+            if( Items.Count == 0 )
+            {
+                
                 BtSnapshot.IsEnabled = false;
                 BtCloneAs.IsEnabled = false;
                 BtRevert.IsEnabled = false;
-                BtUninstall.IsEnabled = false;
+
+                await this.ShowMessageAsync("Warning", "You have no existing backup copies, and we cannot see any existing installation...");
+            }
+            else
+            {
+                if (CurrentProjectDescription.Description.Equals("UNKNOWN"))
+                {
+                    if( Items.Count == 1 )
+                    {
+                        await this.ShowMessageAsync("Warning", "You have no existing backup copies. We recommend you start by creating a backup of your current installation...");
+                    }
+                }
+            }
+        }
+
+        private void ProjectHasBeenRenamed()
+        {
+            foreach(InstallationItem item in Items)
+            {
+                if(item.ProjectDescription == CurrentProjectDescription)
+                {
+                    item.NotifyPropertyChanged("Name");
+                    item.NotifyPropertyChanged("Description");
+                    if (!item.IsCurrent)
+                    {
+                        item.IsCurrent = true;
+                        item.NotifyPropertyChanged("IsCurrent");
+                    }
+                }
+                else if(item.IsCurrent)
+                {
+                    item.IsCurrent = false;
+                    item.NotifyPropertyChanged("IsCurrent");
+                }
             }
         }
 
         private async void BtBackup_Click(object sender, RoutedEventArgs e)
         {
+            if( !CurrentProjectDescription.IsValid )
+            {
+                var dialog = new BackupSettings(CurrentProjectDescription);
+                dialog.Owner = this;
+                bool? result = dialog.ShowDialog();
+                if (!result.HasValue || !result.Value)
+                    return;
+            }
+
+            ProjectHasBeenRenamed();
+
             DateTime start = DateTime.Now;
-            new LongRunningFunctionWindow(new BackupCurrentInstallation(CurrentProjectDescription), "BACKUP IN PROGRESS").ShowDialog();
-            await this.ShowMessageAsync(CurrentProjectDescription.Name, string.Format("Backup complete after {0}", DateTime.Now - start));
+            var backupDialog = new LongRunningFunctionWindow(new BackupCurrentInstallation(CurrentProjectDescription), "BACKUP IN PROGRESS");
+            backupDialog.Owner = this;
+            backupDialog.ShowDialog();
+            await this.ShowMessageAsync(CurrentProjectDescription.ShortName, string.Format("Backup complete after {0}", DateTime.Now - start));
 
         }
     }

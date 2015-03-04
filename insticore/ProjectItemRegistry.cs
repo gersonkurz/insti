@@ -38,10 +38,19 @@ namespace insticore
             writer.WriteEndElement();
         }
 
+        public bool Exists()
+        {
+            string rootPathWithoutHive;
+            using (RegistryKey rootKey = Regis3.OpenRegistryHive(KeyName, out rootPathWithoutHive, RegistryView.Registry32))
+            {
+                RegKeyEntry entry = new RegistryImporter(rootKey, rootPathWithoutHive).Import();
+                return (entry != null);
+            }
+        }
+
 
         public bool Backup(ZipArchive archive)
         {
-            Console.WriteLine(KeyName);
             string rootPathWithoutHive;
             using (RegistryKey rootKey = Regis3.OpenRegistryHive(KeyName, out rootPathWithoutHive, RegistryView.Registry32))
             {

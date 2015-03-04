@@ -21,7 +21,7 @@ namespace insticore
             Shutdown
         };
 
-        public string Name;
+        public string Description;
         public string Archive;
         public readonly List<IProjectItem> Items = new List<IProjectItem>();
         public readonly List<IProjectItemRunInfo> ShutdownItems = new List<IProjectItemRunInfo>();
@@ -29,13 +29,42 @@ namespace insticore
 
         private ProjectDescription(string name, string archive)
         {
-            Name = name;
+            Description = name;
             Archive = archive;
+        }
+
+        public bool IsValid
+        {
+            get
+            {
+                return !Archive.Equals("UNKNOWN", StringComparison.CurrentCultureIgnoreCase);
+            }
+            
+        }
+
+        public string ShortName
+        {
+            get
+            {
+                string result = Archive;
+                if (result.StartsWith("PROAKT_", StringComparison.OrdinalIgnoreCase))
+                    result = result.Substring(7);
+                result = result.Replace("_", " ");
+                return result;
+            }
+            set
+            {
+                string result = value;
+                if (result.StartsWith("PROAKT_", StringComparison.OrdinalIgnoreCase))
+                    result = result.Substring(7);
+                Archive = "PROAKT_" + result.Replace(" ", "_").ToUpper();
+            }
+
         }
 
         public override string ToString()
         {
-            return string.Format("Project '{0}' ({1})", Name, Archive);
+            return string.Format("Project '{0}' ({1})", Description, Archive);
         }
 
         public static ProjectDescription FromDefault(string baseDirectory, string name, string archive)
@@ -43,7 +72,7 @@ namespace insticore
             ProjectDescription result = FromFile(Path.Combine(baseDirectory, "installation.xml"));
             if(result != null)
             {
-                result.Name = name;
+                result.Description = name;
                 result.Archive = archive;
             }
             return result;
@@ -177,7 +206,7 @@ namespace insticore
         private void WriteInstallationXml(XmlWriter writer)
         {
             writer.WriteStartElement("installation");
-            writer.WriteAttributeString("name", Name);
+            writer.WriteAttributeString("name", Description);
             writer.WriteAttributeString("archive", Archive);
 
             foreach (var item in Items)
@@ -342,6 +371,23 @@ namespace insticore
                 }
             }
             return success;
+        }
+
+        /// <summary>
+        /// Checks if an installation exists. This has not really well defined semantics: but mostly it means that the standard
+        /// registry / path entries do exist...
+        /// </summary>
+        /// <returns></returns>
+        public bool Exists()
+        {
+            foreach (IProjectItem item in Items)
+            {
+                if (!item.Exists())
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         public bool Restore(string baseDirectory, string configurationFile)

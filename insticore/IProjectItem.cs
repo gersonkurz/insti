@@ -13,7 +13,7 @@ namespace insticore
         bool Uninstall();
         bool Backup(ZipArchive archive);
         bool Restore(ZipArchive archive);
-
+        bool Exists();
         void WriteInstallationXml(XmlWriter writer);
         
     }

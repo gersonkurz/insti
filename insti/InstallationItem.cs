@@ -23,18 +23,18 @@ namespace insti
         {
             get
             {
-                return GetShortName(ProjectDescription.Archive);
+                return ProjectDescription.ShortName;
             }
         }
         public string Description
         {
             get
             {
-                return ProjectDescription.Name;
+                return ProjectDescription.Description;
             }
         }
 
-        private bool IsCurrent;
+        public bool IsCurrent;
 
         public Brush BackgroundBrush
         {
@@ -45,16 +45,7 @@ namespace insti
         }
         
 
-        private string GetShortName(string long_name)
-        {
-            string result = long_name;
-            if (result.StartsWith("PROAKT_", StringComparison.OrdinalIgnoreCase))
-                result = result.Substring(7);
-            result = result.Replace("_", " ");
-            return result;
-        }
-
-        private readonly insticore.ProjectDescription ProjectDescription;
+        public readonly insticore.ProjectDescription ProjectDescription;
 
         public InstallationItem(insticore.ProjectDescription description, bool isCurrent)
         {

@@ -38,6 +38,11 @@ namespace insticore
             return DeleteFilesRecursive(ExpandedName);
         }
 
+        public bool Exists()
+        {
+            return Directory.Exists(ExpandedName);
+        }
+
         private bool DeleteFilesRecursive(string folder)
         {
             var dir = new DirectoryInfo(folder);

@@ -45,5 +45,11 @@ namespace insticore
             // not implemented yet 
             return true;
         }
+
+
+        public bool Exists()
+        {
+            return true;
+        }
     }
 }

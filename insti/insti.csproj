@@ -69,9 +69,16 @@
     </ApplicationDefinition>
     <Compile Include="BackgroundAction.cs" />
     <Compile Include="BackupCurrentInstallation.cs" />
+    <Compile Include="BackupSettings.xaml.cs">
+      <DependentUpon>BackupSettings.xaml</DependentUpon>
+    </Compile>
     <Compile Include="InstallationItem.cs" />
     <Compile Include="LongRunningFunctionWindow.xaml.cs" />
     <Compile Include="WaitCursor.cs" />
+    <Page Include="BackupSettings.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="LongRunningFunctionWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>

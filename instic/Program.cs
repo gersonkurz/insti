@@ -125,7 +125,7 @@ namespace instic
                 }
                 else if (args.Count == 2)
                 {
-                    description.Name = args[0];
+                    description.Description = args[0];
                     description.Archive = args[1];
                 }
                 else if( args.Count > 0)
