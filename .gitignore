@@ -1,0 +1,10 @@
+# git ignore file
+bin/*
+insti/bin/*
+insti/obj/*
+instic/bin/*
+instic/obj/*
+insticore/bin/*
+insticore/obj/*
+regis3/bin/*
+regis3/obj/*
