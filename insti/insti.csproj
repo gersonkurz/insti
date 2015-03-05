@@ -67,8 +67,11 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Compile Include="Action\RestoreFromArchive.cs" />
     <Compile Include="BackgroundAction.cs" />
-    <Compile Include="BackupCurrentInstallation.cs" />
+    <Compile Include="Action\BackupAndUninstallCurrentInstallation.cs" />
+    <Compile Include="Action\UninstallCurrentInstallation.cs" />
+    <Compile Include="Action\BackupCurrentInstallation.cs" />
     <Compile Include="BackupSettings.xaml.cs">
       <DependentUpon>BackupSettings.xaml</DependentUpon>
     </Compile>

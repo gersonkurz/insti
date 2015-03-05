@@ -13,6 +13,12 @@ namespace insticore
         private readonly string Name;
         private readonly string ExpandedName;
 
+        public IProjectItemRunInfo Clone()
+        {
+            return new ProjectItemRunSync(Name);
+        }
+
+
         public ProjectItemRunSync(string name)
         {
             Name = name;

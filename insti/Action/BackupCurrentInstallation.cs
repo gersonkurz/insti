@@ -5,13 +5,13 @@ using System.Text;
 using System.Threading.Tasks;
 using insticore;
 
-namespace insti
+namespace insti.Action
 {
-    class BackupCurrentInstallation : BackgroundAction
+    class Backup : BackgroundAction
     {
         private readonly ProjectDescription Description;
 
-        public BackupCurrentInstallation(ProjectDescription description)
+        public Backup(ProjectDescription description)
         {
             Description = description;
         }

@@ -13,6 +13,12 @@ namespace insticore
         public readonly string Name;
         public readonly string Port;
 
+
+        public IProjectItem Clone()
+        {
+            return new ProjectItemTcpipService(Name, Port);
+        }
+
         public ProjectItemTcpipService(string name, string port)
         {
             Name = name;

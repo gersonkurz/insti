@@ -19,6 +19,11 @@ namespace insticore
         private readonly string ExpandedName;
         private readonly HashSet<string> CreatedDirectories = new HashSet<string>();
 
+        public IProjectItem Clone()
+        {
+            return new ProjectItemFiles(Name, Archive);
+        }
+
         public ProjectItemFiles(string name, string archive)
         {
             Name = name;

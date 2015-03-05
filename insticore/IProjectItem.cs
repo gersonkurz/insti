@@ -15,6 +15,6 @@ namespace insticore
         bool Restore(ZipArchive archive);
         bool Exists();
         void WriteInstallationXml(XmlWriter writer);
-        
+        IProjectItem Clone();
     }
 }

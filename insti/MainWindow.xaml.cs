@@ -45,6 +45,10 @@ namespace insti
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
+            // snapshot & revert are not supported yet
+            BtSnapshot.IsEnabled = false;
+            BtRevert.IsEnabled = false;
+
             MainItemsControl.ItemsSource = Items;
             worker.DoWork += worker_DoWork;
             worker.RunWorkerCompleted += worker_RunWorkerCompleted;
@@ -56,12 +60,13 @@ namespace insti
             CurrentProjectDescription = insticore.ProjectDescription.FromFile(InstallationFile);
             if (CurrentProjectDescription == null)
             {
-                CurrentProjectDescription = insticore.ProjectDescription.FromDefault(BaseDirectory, "UNKNOWN", "UNKNOWN");
+                CurrentProjectDescription = insticore.ProjectDescription.FromDefault(BaseDirectory, 
+                    string.Format("Installation at '{0}'", System.IO.Path.GetDirectoryName(InstallationFile)), "UNKNOWN");
                 if (CurrentProjectDescription != null)
                 {
                     if( CurrentProjectDescription.Exists() )
                     {
-                        Dispatcher.Invoke(new Action(() => Items.Add(new InstallationItem(CurrentProjectDescription, true))));
+                        Dispatcher.Invoke(new System.Action(() => Items.Add(new InstallationItem(CurrentProjectDescription, true))));
                     }
                     else
                     {
@@ -85,7 +90,7 @@ namespace insti
                                 isDefault = CurrentProjectDescription.Archive.Equals(desc.Archive, StringComparison.OrdinalIgnoreCase);
                             }
 
-                            Dispatcher.Invoke(new Action(() => Items.Add( new InstallationItem(desc, isDefault))));
+                            Dispatcher.Invoke(new System.Action(() => Items.Add( new InstallationItem(desc, isDefault))));
                         }
                     }
                     catch(Exception ex)
@@ -94,33 +99,36 @@ namespace insti
                     }
                 }
             }
-            
         }
 
-        private async void worker_RunWorkerCompleted(object sender,
-                                               RunWorkerCompletedEventArgs e)
+        private async void worker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
         {
             if( CurrentProjectDescription == null )
             {
-                await this.ShowMessageAsync("Error", "Broken insti-installation: you have no installation, and no default description file: aborting");
-                Close();
+                if (Items.Count == 0)
+                {
+                    await this.ShowMessageAsync("Error", "Broken insti-installation: you have no installation, and no default description file: aborting");
+                    Close();
+                }
+                else
+                {
+                    HasNoCurrentInstallation();
+                }
             }
-
-            if( Items.Count == 0 )
+            else if( Items.Count == 0 )
             {
-                
-                BtSnapshot.IsEnabled = false;
-                BtCloneAs.IsEnabled = false;
-                BtRevert.IsEnabled = false;
+                HasUnknownInstallation();
 
                 await this.ShowMessageAsync("Warning", "You have no existing backup copies, and we cannot see any existing installation...");
             }
             else
             {
-                if (CurrentProjectDescription.Description.Equals("UNKNOWN"))
+                HasCurrentInstallation();
+                if (!CurrentProjectDescription.IsValid)
                 {
                     if( Items.Count == 1 )
                     {
+                        HasUnknownInstallation();
                         await this.ShowMessageAsync("Warning", "You have no existing backup copies. We recommend you start by creating a backup of your current installation...");
                     }
                 }
@@ -138,13 +146,13 @@ namespace insti
                     if (!item.IsCurrent)
                     {
                         item.IsCurrent = true;
-                        item.NotifyPropertyChanged("IsCurrent");
+                        item.NotifyPropertyChanged("BackgroundBrush");
                     }
                 }
                 else if(item.IsCurrent)
                 {
                     item.IsCurrent = false;
-                    item.NotifyPropertyChanged("IsCurrent");
+                    item.NotifyPropertyChanged("BackgroundBrush");
                 }
             }
         }
@@ -158,16 +166,152 @@ namespace insti
                 bool? result = dialog.ShowDialog();
                 if (!result.HasValue || !result.Value)
                     return;
+
+                CurrentProjectDescription.UpdateLocalInstallationXml(InstallationFile);
             }
 
             ProjectHasBeenRenamed();
 
             DateTime start = DateTime.Now;
-            var backupDialog = new LongRunningFunctionWindow(new BackupCurrentInstallation(CurrentProjectDescription), "BACKUP IN PROGRESS");
+            var backupDialog = new LongRunningFunctionWindow(new Action.Backup(CurrentProjectDescription), "BACKUP IN PROGRESS");
             backupDialog.Owner = this;
             backupDialog.ShowDialog();
             await this.ShowMessageAsync(CurrentProjectDescription.ShortName, string.Format("Backup complete after {0}", DateTime.Now - start));
+        }
 
+        /// <summary>
+        /// no current installation: no buttons
+        /// </summary>
+        private void HasNoCurrentInstallation()
+        {
+            BtCloneAs.IsEnabled = false;
+            BtBackup.IsEnabled = false;
+            BtUninstall.IsEnabled = false;
+        }
+
+        /// <summary>
+        /// has a current installation previously done with insti: all options are open :)
+        /// </summary>
+        private void HasCurrentInstallation()
+        {
+            BtCloneAs.IsEnabled = true;
+            BtBackup.IsEnabled = true;
+            BtUninstall.IsEnabled = true;
+        }
+
+        /// <summary>
+        /// has an installation, but it is not known yet: you can do backup and uninstall, but not clone
+        /// </summary>
+        private void HasUnknownInstallation()
+        {
+            BtCloneAs.IsEnabled = false;
+            BtBackup.IsEnabled = true;
+            BtUninstall.IsEnabled = true;
+        }
+
+        private void SetCurrentInstallation(insticore.ProjectDescription description)
+        {
+            CurrentProjectDescription = description;
+            if (description == null)
+            {
+                HasNoCurrentInstallation();
+            }
+            else
+            {
+                HasCurrentInstallation();
+            }
+        }
+
+        private async void BtUninstall_Click(object sender, RoutedEventArgs e)
+        {
+            var settings = new MetroDialogSettings();
+            settings.AffirmativeButtonText = "UNINSTALL ONLY";
+            settings.FirstAuxiliaryButtonText = "CANCEL";
+            settings.NegativeButtonText = "BACKUP, THEN UNINSTALL";
+
+            var result = await this.ShowMessageAsync("UNINSTALL",
+                string.Format("Are you sure you want to uninstall {0}?", CurrentProjectDescription.ShortName),
+                MessageDialogStyle.AffirmativeAndNegativeAndSingleAuxiliary,
+                settings);
+
+            if (result == MessageDialogResult.Affirmative)
+            {
+                // ok, uninstall the software
+                DateTime start = DateTime.Now;
+                var backupDialog = new LongRunningFunctionWindow(new Action.Uninstall(CurrentProjectDescription), "UNINSTALL IN PROGRESS");
+                backupDialog.Owner = this;
+                backupDialog.ShowDialog();
+                await this.ShowMessageAsync(CurrentProjectDescription.ShortName, string.Format("Uninstalled after {0}", DateTime.Now - start));
+                SetCurrentInstallation(null);
+                ProjectHasBeenRenamed();
+            }
+            else if( result == MessageDialogResult.Negative)
+            {
+                // backup, then uninstall 
+                // ok, uninstall the software
+                DateTime start = DateTime.Now;
+                var backupDialog = new LongRunningFunctionWindow(new Action.BackupThenUninstall(CurrentProjectDescription), "BACKUP & UNINSTALL IN PROGRESS");
+                backupDialog.Owner = this;
+                backupDialog.ShowDialog();
+                await this.ShowMessageAsync(CurrentProjectDescription.ShortName, string.Format("Uninstalled after {0}", DateTime.Now - start));
+                SetCurrentInstallation(null);
+                ProjectHasBeenRenamed();
+            }
+            else
+            {
+                // chicken out
+            }
+
+            
+        }
+
+        private async void Tile_Click(object sender, RoutedEventArgs e)
+        {
+            Tile tile = sender as Tile;
+            if( tile != null )
+            {
+                if( CurrentProjectDescription != null )
+                {
+                    // ask if the user wants to backup existing installation first
+                }
+
+                var iitem = tile.DataContext as InstallationItem;
+
+                SetCurrentInstallation(iitem.ProjectDescription);
+                DateTime start = DateTime.Now;
+                var dialog = new LongRunningFunctionWindow(new Action.RestoreFromArchive(CurrentProjectDescription), "SWITCH TO " + iitem.Name);
+                dialog.Owner = this;
+                dialog.ShowDialog();
+                
+                await this.ShowMessageAsync(CurrentProjectDescription.ShortName, string.Format("Restored after {0}", DateTime.Now - start));
+                ProjectHasBeenRenamed();
+                
+            }
+        }
+
+        private async void BtCloneAs_Click(object sender, RoutedEventArgs e)
+        {
+            if( CurrentProjectDescription != null )
+            {
+                insticore.ProjectDescription newDescription = CurrentProjectDescription.Clone();
+
+                var dialog = new BackupSettings(newDescription, true);
+                dialog.Owner = this;
+                bool? result = dialog.ShowDialog();
+                if (!result.HasValue || !result.Value)
+                    return;
+
+                Items.Add(new InstallationItem(newDescription, true));
+                newDescription.UpdateLocalInstallationXml(InstallationFile);
+                SetCurrentInstallation(newDescription);
+                ProjectHasBeenRenamed();
+
+                DateTime start = DateTime.Now;
+                var backupDialog = new LongRunningFunctionWindow(new Action.Backup(CurrentProjectDescription), "CLONE IN PROGRESS");
+                backupDialog.Owner = this;
+                backupDialog.ShowDialog();
+                await this.ShowMessageAsync(CurrentProjectDescription.ShortName, string.Format("Clone complete after {0}", DateTime.Now - start));
+            }
         }
     }
 }

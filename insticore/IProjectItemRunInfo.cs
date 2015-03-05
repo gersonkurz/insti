@@ -11,5 +11,6 @@ namespace insticore
     {
         void Run();
         void WriteInstallationXml(XmlWriter writer);
+        IProjectItemRunInfo Clone();
     }
 }

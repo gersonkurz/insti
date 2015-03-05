@@ -43,6 +43,11 @@ namespace insti
                 return (Brush)(IsCurrent ? App.Current.FindResource("HighlightBrush") : App.Current.FindResource("AccentColorBrush2"));
             }
         }
+
+        public override string ToString()
+        {
+            return ProjectDescription.Archive;
+        }
         
 
         public readonly insticore.ProjectDescription ProjectDescription;

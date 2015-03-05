@@ -29,14 +29,6 @@
                 <ColumnDefinition Width="150"/>
             </Grid.ColumnDefinitions>
             <Button Name="BtBackup" Grid.Column="0" Style="{DynamicResource SquareButtonStyle}" BorderThickness="1" BorderBrush="Gray" Margin="3" Click="BtBackup_Click">
-                <Button.ToolTip>
-                    <ToolTip>
-                        <StackPanel>
-                            <TextBlock FontWeight="Bold">Show all services</TextBlock>
-                            <TextBlock>Shows all background services configured on your system, and allows you to manage them.</TextBlock>
-                        </StackPanel>
-                    </ToolTip>
-                </Button.ToolTip>
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                     <TextBlock FontFamily="Segoe UI Symbol" Text="&#xE105;" FontSize="24" HorizontalAlignment="Center"/>
                     <AccessText FontFamily="Segoe UI" FontSize="14" FontWeight="Light" HorizontalAlignment="Center">_BACKUP</AccessText>
@@ -44,14 +36,6 @@
             </Button>
 
             <Button Name="BtSnapshot" Grid.Column="1" Style="{DynamicResource SquareButtonStyle}"  BorderThickness="1" BorderBrush="Gray" Margin="3">
-                <Button.ToolTip>
-                    <ToolTip>
-                        <StackPanel>
-                            <TextBlock FontWeight="Bold">Show all services</TextBlock>
-                            <TextBlock>Shows all background services configured on your system, and allows you to manage them.</TextBlock>
-                        </StackPanel>
-                    </ToolTip>
-                </Button.ToolTip>
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                     <TextBlock FontFamily="Segoe UI Symbol" Text="&#xE114;" FontSize="24" HorizontalAlignment="Center"/>
                     <AccessText FontFamily="Segoe UI" FontSize="14" FontWeight="Light" HorizontalAlignment="Center">_SNAPSHOT</AccessText>
@@ -59,29 +43,13 @@
             </Button>
 
             <Button Name="BtRevert" Grid.Column="2" Style="{DynamicResource SquareButtonStyle}"  BorderThickness="1" BorderBrush="Gray" Margin="3">
-                <Button.ToolTip>
-                    <ToolTip>
-                        <StackPanel>
-                            <TextBlock FontWeight="Bold">Show all services</TextBlock>
-                            <TextBlock>Shows all background services configured on your system, and allows you to manage them.</TextBlock>
-                        </StackPanel>
-                    </ToolTip>
-                </Button.ToolTip>
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                     <TextBlock FontFamily="Segoe UI Symbol" Text="&#xE1C5;" FontSize="24" HorizontalAlignment="Center"/>
                     <AccessText FontFamily="Segoe UI" FontSize="14" FontWeight="Light" HorizontalAlignment="Center">_REVERT</AccessText>
                 </StackPanel>
             </Button>
 
-            <Button Name="BtUninstall" Grid.Column="3" Style="{DynamicResource SquareButtonStyle}" BorderThickness="1" BorderBrush="Gray" Margin="3">
-                <Button.ToolTip>
-                    <ToolTip>
-                        <StackPanel>
-                            <TextBlock FontWeight="Bold">Show all services</TextBlock>
-                            <TextBlock>Shows all background services configured on your system, and allows you to manage them.</TextBlock>
-                        </StackPanel>
-                    </ToolTip>
-                </Button.ToolTip>
+            <Button Name="BtUninstall" Grid.Column="3" Style="{DynamicResource SquareButtonStyle}" BorderThickness="1" BorderBrush="Gray" Margin="3" Click="BtUninstall_Click">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                     <TextBlock FontFamily="Segoe UI Symbol" Text="&#xE107;" FontSize="24" HorizontalAlignment="Center"/>
                     <AccessText FontFamily="Segoe UI" FontSize="14" FontWeight="Light" HorizontalAlignment="Center">_UNINSTALL</AccessText>
@@ -89,15 +57,7 @@
             </Button>
 
 
-            <Button Name="BtCloneAs" Grid.Column="4" Style="{DynamicResource SquareButtonStyle}"  BorderThickness="1" BorderBrush="Gray" Margin="3">
-                <Button.ToolTip>
-                    <ToolTip>
-                        <StackPanel>
-                            <TextBlock FontWeight="Bold">Show all services</TextBlock>
-                            <TextBlock>Shows all background services configured on your system, and allows you to manage them.</TextBlock>
-                        </StackPanel>
-                    </ToolTip>
-                </Button.ToolTip>
+            <Button Name="BtCloneAs" Grid.Column="4" Style="{DynamicResource SquareButtonStyle}"  BorderThickness="1" BorderBrush="Gray" Margin="3" Click="BtCloneAs_Click">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                     <TextBlock FontFamily="Segoe UI Symbol" Text="&#xE109;" FontSize="24" HorizontalAlignment="Center"/>
                     <AccessText FontFamily="Segoe UI" FontSize="14" FontWeight="Light" HorizontalAlignment="Center">_CLONE</AccessText>
@@ -113,7 +73,7 @@
                                        TitleFontSize="12"
                                        CountFontSize="24"
                                        FontFamily="Segoe UI"
-                                       
+                                       Click="Tile_Click"
                                        Background="{Binding Path=BackgroundBrush}"
                     Width="300" Height="100" 
                     Count="{Binding Path=Name}">

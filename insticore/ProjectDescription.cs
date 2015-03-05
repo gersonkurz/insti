@@ -27,6 +27,28 @@ namespace insticore
         public readonly List<IProjectItemRunInfo> ShutdownItems = new List<IProjectItemRunInfo>();
         public readonly List<IProjectItemRunInfo> StartupItems = new List<IProjectItemRunInfo>();
 
+        public ProjectDescription Clone()
+        {
+            var result = new ProjectDescription(Description, Archive);
+
+            foreach (IProjectItem item in Items)
+            {
+                result.Items.Add(item.Clone());
+            }
+
+            foreach (IProjectItemRunInfo item in ShutdownItems)
+            {
+                result.ShutdownItems.Add(item.Clone());
+            }
+
+            foreach (IProjectItemRunInfo item in StartupItems)
+            {
+                result.StartupItems.Add(item.Clone());
+            }
+
+            return result;
+        }
+
         private ProjectDescription(string name, string archive)
         {
             Description = name;
@@ -320,6 +342,11 @@ namespace insticore
         private void Report(IReportProgress progress, string msg, params object[] args)
         {
             progress.ShowText(string.Format(msg, args));
+        }
+
+        public void UpdateLocalInstallationXml(string configurationFile)
+        {
+            File.WriteAllText(configurationFile, CreateInstallationXml());
         }
 
         public bool Backup(string baseDirectory, bool snapshot, int maxSnapshots, IReportProgress progress)

@@ -12,6 +12,12 @@ namespace insticore
     {
         public readonly string Name;
 
+
+        public IProjectItemRunInfo Clone()
+        {
+            return new ProjectItemKillProcess(Name);
+        }
+
         public ProjectItemKillProcess(string name)
         {
             Name = name;

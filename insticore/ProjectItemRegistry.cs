@@ -18,6 +18,11 @@ namespace insticore
         private readonly string KeyName;
         private readonly string NameInArchive;
 
+        public IProjectItem Clone()
+        {
+            return new ProjectItemRegistry(KeyName, NameInArchive);
+        }
+
         public ProjectItemRegistry(string name, string archive)
         {
             KeyName = name;

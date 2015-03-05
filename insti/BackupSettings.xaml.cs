@@ -23,11 +23,15 @@ namespace insti
     public partial class BackupSettings : MetroWindow
     {
         private readonly insticore.ProjectDescription Project;
+        private readonly bool IsCloneFunc;
 
-        public BackupSettings(insticore.ProjectDescription project)
+        public BackupSettings(insticore.ProjectDescription project, bool isCloneFunc = false)
         {
             InitializeComponent();
             Project = project;
+            IsCloneFunc = isCloneFunc;
+            if (isCloneFunc)
+                LbCaption.Content = "CREATE A NEW CLONE";
         }
 
 
@@ -73,6 +77,14 @@ namespace insti
             {
                 LbError.Content = "NAME must not be UNKNOWN";
                 return false;
+            }
+            if (IsCloneFunc)
+            {
+                if(TbName.Text.Equals(Project.ShortName) )
+                {
+                    LbError.Content = "You must choose a new NAME for a clone";
+                    return false;
+                }
             }
             return true;
         }
