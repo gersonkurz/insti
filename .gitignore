@@ -8,3 +8,5 @@ insticore/bin/*
 insticore/obj/*
 regis3/bin/*
 regis3/obj/*
+*.suo
+/insti.v12.suo
