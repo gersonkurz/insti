@@ -34,8 +34,6 @@ namespace insticore
             return true;
         }
         
-        
-
         public void Dispose()
         {
             Archive.Dispose();
