@@ -14,210 +14,297 @@
 #include <vector>
 #include <functional>
 
+namespace pnq
+{
+	template <typename T> class RefCountedInstance
+	{
+		T m_value;
+	public:
+		explicit RefCountedInstance(T value)
+			: m_value{ value }
+		{
+			PNQ_ADDREF(m_value);
+		}
+		RefCountedInstance()
+			: m_value{ nullptr }
+		{
+		}
+		~RefCountedInstance()
+		{
+			PNQ_RELEASE(m_value);
+		}
+		// Non-copyable
+		RefCountedInstance(const RefCountedInstance& other)
+			: m_value{ other.m_value }
+		{
+			PNQ_ADDREF(m_value);
+		}
+		RefCountedInstance& operator=(const RefCountedInstance& other)
+		{
+			if (this != &other)
+			{
+				PNQ_RELEASE(m_value);
+				m_value = other.m_value;
+				PNQ_ADDREF(m_value);
+			}
+			return *this;
+		}
+
+		RefCountedInstance(RefCountedInstance&& other) noexcept
+			: m_value{ other.m_value }
+		{
+			other.m_value = T{};
+		}
+
+		RefCountedInstance& operator=(RefCountedInstance&& other) noexcept
+		{
+			if (this != &other)
+			{
+				PNQ_RELEASE(m_value);
+				m_value = other.m_value;
+				other.m_value = T{};
+			}
+			return *this;
+		}
+		T get() const { return m_value; }
+		T get() { return m_value; }
+	};
+}
+
 namespace instinctiv
 {
 
-// =============================================================================
-// Messages from UI to Worker
-// =============================================================================
+	// =============================================================================
+	// Messages from UI to Worker
+	// =============================================================================
 
-struct StartBackup
-{
-    const insti::Blueprint* blueprint;
-    std::string output_path;
-};
+	class StartBackup final
+	{
+	public:
+		StartBackup(insti::SnapshotRegistry* snapshot_registry, insti::Blueprint* bp, std::string_view path)
+			: m_snapshot_registry{ snapshot_registry }
+			, m_blueprint{ bp }
+			, m_output_path{ path }
+		{
+		}
 
-struct StartRestore
-{
-    std::string archive_path;
-    std::unordered_map<std::string, std::string> variable_overrides;
-};
+		pnq::RefCountedInstance<insti::Blueprint*> m_blueprint;
+		pnq::RefCountedInstance<insti::SnapshotRegistry*> m_snapshot_registry;
+		std::string m_output_path;
+	};
 
-struct StartClean
-{
-    const insti::Blueprint* blueprint;
-    std::string project;  // Project name for installation registry update
-    bool simulate = false;
-};
+	class StartRestore final
+	{
+	public:
+		StartRestore(insti::SnapshotRegistry* snapshot_registry, std::string_view path, const std::unordered_map<std::string, std::string>& vo)
+			: m_snapshot_registry{ snapshot_registry }
+			, m_variable_overrides{ vo }
+			, m_archive_path{ path }
+		{
+		}
+		std::string m_archive_path;
+		std::unordered_map<std::string, std::string> m_variable_overrides;
+		pnq::RefCountedInstance<insti::SnapshotRegistry*> m_snapshot_registry;
+	};
 
-struct StartVerify
-{
-    const insti::Blueprint* blueprint;
-};
+	class StartClean final
+	{
+	public:
+		StartClean(insti::SnapshotRegistry* snapshot_registry, insti::Blueprint* bp, bool simulate = false)
+			: m_snapshot_registry{ snapshot_registry }
+			, m_blueprint{ bp}
+			, m_simulate{ simulate }
+		{
+		}
+		pnq::RefCountedInstance<insti::Blueprint*> m_blueprint;
+		pnq::RefCountedInstance<insti::SnapshotRegistry*> m_snapshot_registry;
+		bool m_simulate;
+	};
 
-struct RefreshRegistry
-{
-    std::vector<std::string> roots;
-};
+	class StartVerify final
+	{
+	public:
+		StartVerify(insti::SnapshotRegistry* snapshot_registry, insti::Blueprint* bp)
+			: m_snapshot_registry{ snapshot_registry }
+			, m_blueprint{ bp }
+		{
+		}
+		pnq::RefCountedInstance<insti::Blueprint*> m_blueprint;
+		pnq::RefCountedInstance<insti::SnapshotRegistry*> m_snapshot_registry;
+	};
 
-struct DecisionResponse
-{
-    insti::IActionCallback::Decision decision;
-};
+	struct RefreshRegistry
+	{
+		std::vector<std::string> roots;
+	};
 
-struct CancelOperation
-{
-    // No parameters - signals worker to abort current operation
-};
+	struct DecisionResponse
+	{
+		insti::IActionCallback::Decision decision;
+	};
 
-struct ShutdownWorker
-{
-    // No parameters - signals worker thread to exit
-};
+	struct CancelOperation
+	{
+		// No parameters - signals worker to abort current operation
+	};
 
-using WorkerMessage = std::variant<
-    StartBackup,
-    StartRestore,
-    StartClean,
-    StartVerify,
-    RefreshRegistry,
-    DecisionResponse,
-    CancelOperation,
-    ShutdownWorker
->;
+	struct ShutdownWorker
+	{
+		// No parameters - signals worker thread to exit
+	};
 
-// =============================================================================
-// Messages from Worker to UI
-// =============================================================================
+	using WorkerMessage = std::variant<
+		StartBackup,
+		StartRestore,
+		StartClean,
+		StartVerify,
+		RefreshRegistry,
+		DecisionResponse,
+		CancelOperation,
+		ShutdownWorker
+	>;
 
-struct Progress
-{
-    std::string phase;
-    std::string detail;
-    int percent; // -1 for indeterminate
-};
+	// =============================================================================
+	// Messages from Worker to UI
+	// =============================================================================
 
-struct LogEntry
-{
-    enum class Level { Info, Warning, Error };
-    Level level;
-    std::string message;
-};
+	struct Progress
+	{
+		std::string phase;
+		std::string detail;
+		int percent; // -1 for indeterminate
+	};
 
-struct ErrorDecision
-{
-    std::string message;
-    std::string context;
-};
+	struct LogEntry
+	{
+		enum class Level { Info, Warning, Error };
+		Level level;
+		std::string message;
+	};
 
-struct FileConflict
-{
-    std::string path;
-    std::string action;
-};
+	struct ErrorDecision
+	{
+		std::string message;
+		std::string context;
+	};
 
-struct OperationComplete
-{
-    bool success;
-    std::string message;
-    std::string project;        // Project name (for backup/restore)
-    std::string snapshot_path;  // Path to snapshot (for backup/restore)
-};
+	struct FileConflict
+	{
+		std::string path;
+		std::string action;
+	};
 
-struct VerifyComplete
-{
-    std::vector<insti::VerifyResult> results;
-};
+	struct OperationComplete
+	{
+		bool success;
+		std::string message;
+		std::string project;        // Project name (for backup/restore)
+	};
 
-struct RegistryRefreshComplete
-{
-    bool success;
-    insti::SnapshotRegistry* snapshot_registry;
-};
+	struct VerifyComplete
+	{
+		std::vector<insti::VerifyResult> results;
+	};
 
-using UIMessage = std::variant<
-    Progress,
-    LogEntry,
-    ErrorDecision,
-    FileConflict,
-    OperationComplete,
-    VerifyComplete,
-    RegistryRefreshComplete
->;
+	struct RegistryRefreshComplete
+	{
+		bool success;
+		insti::SnapshotRegistry* snapshot_registry;
+	};
 
-// =============================================================================
-// WorkerCallback - IActionCallback that posts to UI queue
-// =============================================================================
+	using UIMessage = std::variant<
+		Progress,
+		LogEntry,
+		ErrorDecision,
+		FileConflict,
+		OperationComplete,
+		VerifyComplete,
+		RegistryRefreshComplete
+	>;
 
-class WorkerThread; // Forward declaration
+	// =============================================================================
+	// WorkerCallback - IActionCallback that posts to UI queue
+	// =============================================================================
 
-class WorkerCallback : public insti::IActionCallback
-{
-public:
-    explicit WorkerCallback(WorkerThread* worker);
+	class WorkerThread; // Forward declaration
 
-    void on_progress(std::string_view phase, std::string_view detail, int percent) override;
-    void on_warning(std::string_view message) override;
-    Decision on_error(std::string_view message, std::string_view context) override;
-    Decision on_file_conflict(std::string_view path, std::string_view action) override;
+	class WorkerCallback : public insti::IActionCallback
+	{
+	public:
+		explicit WorkerCallback(WorkerThread* worker);
 
-private:
-    Decision wait_for_decision();
+		void on_progress(std::string_view phase, std::string_view detail, int percent) override;
+		void on_warning(std::string_view message) override;
+		Decision on_error(std::string_view message, std::string_view context) override;
+		Decision on_file_conflict(std::string_view path, std::string_view action) override;
 
-    WorkerThread* m_worker;
-};
+	private:
+		Decision wait_for_decision();
 
-// =============================================================================
-// WorkerThread - Owns thread and message queues
-// =============================================================================
+		WorkerThread* m_worker;
+	};
 
-class WorkerThread
-{
-public:
-    static constexpr size_t QUEUE_SIZE = 256;
+	// =============================================================================
+	// WorkerThread - Owns thread and message queues
+	// =============================================================================
 
-    WorkerThread();
-    ~WorkerThread();
+	class WorkerThread
+	{
+	public:
+		static constexpr size_t QUEUE_SIZE = 256;
 
-    // Non-copyable, non-movable
-    WorkerThread(const WorkerThread&) = delete;
-    WorkerThread& operator=(const WorkerThread&) = delete;
+		WorkerThread();
+		~WorkerThread();
 
-    /// Post a message to the worker (non-blocking).
-    void post(WorkerMessage msg);
+		// Non-copyable, non-movable
+		WorkerThread(const WorkerThread&) = delete;
+		WorkerThread& operator=(const WorkerThread&) = delete;
 
-    /// Poll for a message from the worker (non-blocking).
-    /// Returns std::nullopt if no message available.
-    std::optional<UIMessage> poll();
+		/// Post a message to the worker (non-blocking).
+		void post(WorkerMessage msg);
 
-    /// Check if the worker is currently busy with an operation.
-    bool is_busy() const { return m_busy.load(); }
+		/// Poll for a message from the worker (non-blocking).
+		/// Returns std::nullopt if no message available.
+		std::optional<UIMessage> poll();
 
-    /// Request cancellation of current operation.
-    void cancel() { m_cancel_requested.store(true); }
+		/// Check if the worker is currently busy with an operation.
+		bool is_busy() const { return m_busy.load(); }
 
-    /// Check if cancellation was requested.
-    bool is_cancel_requested() const { return m_cancel_requested.load(); }
+		/// Request cancellation of current operation.
+		void cancel() { m_cancel_requested.store(true); }
 
-    /// Clear cancellation flag.
-    void clear_cancel() { m_cancel_requested.store(false); }
+		/// Check if cancellation was requested.
+		bool is_cancel_requested() const { return m_cancel_requested.load(); }
 
-private:
-    friend class WorkerCallback;
+		/// Clear cancellation flag.
+		void clear_cancel() { m_cancel_requested.store(false); }
 
-    void thread_func();
-    void process_message(const WorkerMessage& msg);
+	private:
+		friend class WorkerCallback;
 
-    void do_backup(const StartBackup& cmd);
-    void do_restore(const StartRestore& cmd);
-    void do_clean(const StartClean& cmd);
-    void do_verify(const StartVerify& cmd);
-    void do_refresh_registry(const RefreshRegistry& cmd);
+		void thread_func();
+		void process_message(const WorkerMessage& msg);
 
-    /// Post a message to the UI (called from worker thread).
-    void post_to_ui(UIMessage msg);
+		void do_backup(const StartBackup& cmd);
+		void do_restore(const StartRestore& cmd);
+		void do_clean(const StartClean& cmd);
+		void do_verify(const StartVerify& cmd);
+		void do_refresh_registry(const RefreshRegistry& cmd);
 
-    /// Wait for a decision response from UI (blocks worker thread).
-    insti::IActionCallback::Decision wait_for_decision();
+		/// Post a message to the UI (called from worker thread).
+		void post_to_ui(UIMessage msg);
 
-    rigtorp::SPSCQueue<WorkerMessage> m_to_worker{QUEUE_SIZE};
-    rigtorp::SPSCQueue<UIMessage> m_to_ui{QUEUE_SIZE};
+		/// Wait for a decision response from UI (blocks worker thread).
+		insti::IActionCallback::Decision wait_for_decision();
 
-    std::thread m_thread;
-    std::atomic<bool> m_running{false};
-    std::atomic<bool> m_busy{false};
-    std::atomic<bool> m_cancel_requested{false};
-    std::atomic<bool> m_waiting_for_decision{false};
-};
+		rigtorp::SPSCQueue<WorkerMessage> m_to_worker{ QUEUE_SIZE };
+		rigtorp::SPSCQueue<UIMessage> m_to_ui{ QUEUE_SIZE };
+
+		std::thread m_thread;
+		std::atomic<bool> m_running{ false };
+		std::atomic<bool> m_busy{ false };
+		std::atomic<bool> m_cancel_requested{ false };
+		std::atomic<bool> m_waiting_for_decision{ false };
+	};
 
 } // namespace instinctiv

@@ -1,10 +1,10 @@
 #include "pch.h"
-#include <insti/core/project_blueprint.h>
+#include <insti/core/project.h>
 
 namespace insti
 {
 
-ProjectBlueprint* ProjectBlueprint::load_from_file(std::string_view xml_path)
+Project* Project::load_from_file(std::string_view xml_path)
 {
     std::string path_str{xml_path};
     std::string content = pnq::text_file::read_auto(path_str);
@@ -17,9 +17,9 @@ ProjectBlueprint* ProjectBlueprint::load_from_file(std::string_view xml_path)
     return load_from_string(content, xml_path);
 }
 
-ProjectBlueprint* ProjectBlueprint::load_from_string(std::string_view xml, std::string_view source_path)
+Project* Project::load_from_string(std::string_view xml, std::string_view source_path)
 {
-    auto bp = new ProjectBlueprint();
+    auto bp = new Project();
     bp->m_source_path = std::string{source_path};
     bp->populate_builtins();
 

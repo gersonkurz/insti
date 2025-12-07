@@ -4,362 +4,370 @@
 namespace insti
 {
 
-namespace
-{
+	namespace
+	{
 
-/// Run hooks for a specific phase.
-/// @param bp Blueprint containing hooks
-/// @param phase Phase to run hooks for
-/// @param cb Callback for progress/errors (may be nullptr)
-/// @param skip_all Reference to skip-all state (checked and updated)
-/// @return true if all hooks succeeded or were skipped, false if aborted
-bool run_hooks(const Blueprint* bp, Phase phase, IActionCallback* cb, bool& skip_all)
-{
-    const auto& hooks = bp->hooks(phase);
-    if (hooks.empty())
-        return true;
+		/// Run hooks for a specific phase.
+		/// @param bp Blueprint containing hooks
+		/// @param phase Phase to run hooks for
+		/// @param cb Callback for progress/errors (may be nullptr)
+		/// @param skip_all Reference to skip-all state (checked and updated)
+		/// @return true if all hooks succeeded or were skipped, false if aborted
+		bool run_hooks(const Blueprint* bp, Phase phase, IActionCallback* cb, bool& skip_all)
+		{
+			const auto& hooks = bp->hooks(phase);
+			if (hooks.empty())
+				return true;
 
-    const auto& vars = bp->resolved_variables();
+			const auto& vars = bp->resolved_variables();
 
-    for (auto* hook : hooks)
-    {
-        if (cb)
-            cb->on_progress(phase_to_string(phase), hook->type_name(), -1);
+			for (auto* hook : hooks)
+			{
+				if (cb)
+					cb->on_progress(phase_to_string(phase), hook->type_name(), -1);
 
-        // Set phase for hooks that need to know direction
-        if (auto* sub = dynamic_cast<SubstituteHook*>(hook))
-            sub->set_phase(phase);
-        if (auto* sql = dynamic_cast<SqlHook*>(hook))
-            sql->set_phase(phase);
+				// Set phase for hooks that need to know direction
+				if (auto* sub = dynamic_cast<SubstituteHook*>(hook))
+					sub->set_phase(phase);
+				if (auto* sql = dynamic_cast<SqlHook*>(hook))
+					sql->set_phase(phase);
 
-        if (!hook->execute(vars))
-        {
-            if (skip_all)
-                continue; // Skip without prompting
+				if (!hook->execute(vars))
+				{
+					if (skip_all)
+						continue; // Skip without prompting
 
-            if (cb)
-            {
-                auto decision = cb->on_error("Hook execution failed", hook->type_name());
-                switch (decision)
-                {
-                case IActionCallback::Decision::Abort:
-                    return false;
-                case IActionCallback::Decision::SkipAll:
-                    skip_all = true;
-                    [[fallthrough]];
-                case IActionCallback::Decision::Skip:
-                case IActionCallback::Decision::Continue:
-                case IActionCallback::Decision::Retry:
-                default:
-                    continue;
-                }
-            }
-            else
-            {
-                return false;
-            }
-        }
-    }
+					if (cb)
+					{
+						auto decision = cb->on_error("Hook execution failed", hook->type_name());
+						switch (decision)
+						{
+						case IActionCallback::Decision::Abort:
+							return false;
+						case IActionCallback::Decision::SkipAll:
+							skip_all = true;
+							[[fallthrough]];
+						case IActionCallback::Decision::Skip:
+						case IActionCallback::Decision::Continue:
+						case IActionCallback::Decision::Retry:
+						default:
+							continue;
+						}
+					}
+					else
+					{
+						return false;
+					}
+				}
+			}
 
-    return true;
-}
+			return true;
+		}
 
-} // namespace
+	} // namespace
 
-namespace orchestrator
-{
+	Orchestrator::Orchestrator(SnapshotRegistry* snapshot_registry)
+			: m_snapshot_registry{ snapshot_registry }
+		{
+			PNQ_ADDREF(m_snapshot_registry);
+		}
 
-bool backup(const Blueprint* bp, std::string_view output_path, IActionCallback* cb)
-{
-    if (!bp)
-    {
-        spdlog::error("backup: blueprint is null");
-        return false;
-    }
+		Orchestrator::~Orchestrator()
+		{
+			PNQ_RELEASE(m_snapshot_registry);
+		}
 
-    spdlog::info("backup: starting backup to {}", output_path);
+		bool Orchestrator::backup(const Blueprint* bp, std::string_view output_path, IActionCallback* cb)
+		{
+			if (!bp)
+			{
+				spdlog::error("backup: blueprint is null");
+				return false;
+			}
 
-    bool skip_all = false;
+			spdlog::info("backup: starting backup to {}", output_path);
 
-    // Run PreBackup hooks
-    spdlog::info("backup: running PreBackup hooks");
-    if (!run_hooks(bp, Phase::PreBackup, cb, skip_all))
-    {
-        spdlog::error("backup: PreBackup hooks failed");
-        return false;
-    }
-    spdlog::info("backup: PreBackup hooks completed");
+			bool skip_all = false;
 
-    // Create snapshot writer
-    ZipSnapshotWriter writer;
-    std::string output_path_str{output_path};
-    spdlog::info("backup: creating snapshot file");
-    if (!writer.create(output_path_str))
-    {
-        spdlog::error("backup: failed to create snapshot file");
-        if (cb)
-            cb->on_error("Failed to create snapshot file", output_path);
-        return false;
-    }
-    spdlog::info("backup: snapshot file created");
+			// Run PreBackup hooks
+			spdlog::info("backup: running PreBackup hooks");
+			if (!run_hooks(bp, Phase::PreBackup, cb, skip_all))
+			{
+				spdlog::error("backup: PreBackup hooks failed");
+				return false;
+			}
+			spdlog::info("backup: PreBackup hooks completed");
 
-    // Create context
-    auto* ctx = ActionContext::for_backup(bp, &writer, cb);
-    ctx->set_skip_all_errors(skip_all);
+			// Create snapshot writer
+			ZipSnapshotWriter writer;
+			std::string output_path_str{ output_path };
+			spdlog::info("backup: creating snapshot file");
+			if (!writer.create(output_path_str))
+			{
+				spdlog::error("backup: failed to create snapshot file");
+				if (cb)
+					cb->on_error("Failed to create snapshot file", output_path);
+				return false;
+			}
+			spdlog::info("backup: snapshot file created");
 
-    // Backup each action (forward order)
-    bool success = true;
-    const auto& actions = bp->actions();
-    spdlog::info("backup: backing up {} actions", actions.size());
+			// Create context
+			auto* ctx = ActionContext::for_backup(bp, &writer, cb);
+			ctx->set_skip_all_errors(skip_all);
 
-    int action_idx = 0;
-    for (const auto* action : actions)
-    {
-        spdlog::info("backup: action {}/{}: {}", ++action_idx, actions.size(), action->description());
-        if (!action->backup(ctx))
-        {
-            spdlog::error("backup: action failed: {}", action->description());
-            success = false;
-            break;
-        }
-        spdlog::info("backup: action completed: {}", action->description());
-    }
+			// Backup each action (forward order)
+			bool success = true;
+			const auto& actions = bp->actions();
+			spdlog::info("backup: backing up {} actions", actions.size());
 
-    // Propagate skip_all state back for PostBackup hooks
-    skip_all = ctx->skip_all_errors();
-    ctx->release(REFCOUNT_DEBUG_ARGS);
+			int action_idx = 0;
+			for (const auto* action : actions)
+			{
+				spdlog::info("backup: action {}/{}: {}", ++action_idx, actions.size(), action->description());
+				if (!action->backup(ctx))
+				{
+					spdlog::error("backup: action failed: {}", action->description());
+					success = false;
+					break;
+				}
+				spdlog::info("backup: action completed: {}", action->description());
+			}
 
-    if (!success)
-    {
-        spdlog::error("backup: failed due to action failure");
-        return false;
-    }
+			// Propagate skip_all state back for PostBackup hooks
+			skip_all = ctx->skip_all_errors();
+			ctx->release(REFCOUNT_DEBUG_ARGS);
 
-    // Write blueprint to archive
-    spdlog::info("backup: writing blueprint.xml to archive");
-    if (!writer.write_text("blueprint.xml", bp->to_xml()))
-    {
-        spdlog::error("backup: failed to write blueprint.xml");
-        if (cb)
-            cb->on_error("Failed to write blueprint to archive", "blueprint.xml");
-        return false;
-    }
+			if (!success)
+			{
+				spdlog::error("backup: failed due to action failure");
+				return false;
+			}
 
-    // Finalize archive
-    spdlog::info("backup: finalizing archive");
-    if (!writer.finalize())
-    {
-        spdlog::error("backup: failed to finalize archive");
-        if (cb)
-            cb->on_error("Failed to finalize snapshot", output_path);
-        return false;
-    }
+			// Write blueprint to archive
+			spdlog::info("backup: writing blueprint.xml to archive");
+			if (!writer.write_text("blueprint.xml", bp->to_xml()))
+			{
+				spdlog::error("backup: failed to write blueprint.xml");
+				if (cb)
+					cb->on_error("Failed to write blueprint to archive", "blueprint.xml");
+				return false;
+			}
 
-    // Run PostBackup hooks
-    spdlog::info("backup: running PostBackup hooks");
-    if (!run_hooks(bp, Phase::PostBackup, cb, skip_all))
-    {
-        spdlog::error("backup: PostBackup hooks failed");
-        return false;
-    }
+			// Finalize archive
+			spdlog::info("backup: finalizing archive");
+			if (!writer.finalize())
+			{
+				spdlog::error("backup: failed to finalize archive");
+				if (cb)
+					cb->on_error("Failed to finalize snapshot", output_path);
+				return false;
+			}
 
-    spdlog::info("backup: completed successfully");
-    if (cb)
-        cb->on_progress("Backup", "Complete", 100);
+			// Run PostBackup hooks
+			spdlog::info("backup: running PostBackup hooks");
+			if (!run_hooks(bp, Phase::PostBackup, cb, skip_all))
+			{
+				spdlog::error("backup: PostBackup hooks failed");
+				return false;
+			}
 
-    return true;
-}
 
-bool restore(std::string_view archive_path, IActionCallback* cb, bool simulate)
-{
-    // Open archive
-    ZipSnapshotReader reader;
-    std::string archive_path_str{archive_path};
-    if (!reader.open(archive_path_str))
-    {
-        if (cb)
-            cb->on_error("Failed to open snapshot", archive_path);
-        return false;
-    }
 
-    // Read blueprint from archive
-    std::string blueprint_xml = reader.read_text("blueprint.xml");
-    if (blueprint_xml.empty())
-    {
-        if (cb)
-            cb->on_error("No blueprint.xml in snapshot", archive_path);
-        return false;
-    }
+			spdlog::info("backup: completed successfully");
+			if (cb)
+				cb->on_progress("Backup", "Complete", 100);
 
-    auto* bp = Blueprint::load_from_string(blueprint_xml);
-    if (!bp)
-    {
-        if (cb)
-            cb->on_error("Failed to parse blueprint", archive_path);
-        return false;
-    }
+			return true;
+		}
 
-    bool result = restore(bp, archive_path, cb, simulate);
-    bp->release(REFCOUNT_DEBUG_ARGS);
-    return result;
-}
+		bool Orchestrator::restore(std::string_view archive_path, IActionCallback* cb, bool simulate)
+		{
+			// Open archive
+			ZipSnapshotReader reader;
+			std::string archive_path_str{ archive_path };
+			if (!reader.open(archive_path_str))
+			{
+				if (cb)
+					cb->on_error("Failed to open snapshot", archive_path);
+				return false;
+			}
 
-bool restore(const Blueprint* bp, std::string_view archive_path, IActionCallback* cb, bool simulate)
-{
-    if (!bp)
-        return false;
+			// Read blueprint from archive
+			std::string blueprint_xml = reader.read_text("blueprint.xml");
+			if (blueprint_xml.empty())
+			{
+				if (cb)
+					cb->on_error("No blueprint.xml in snapshot", archive_path);
+				return false;
+			}
 
-    bool skip_all = false;
+			auto* bp = Blueprint::load_from_string(blueprint_xml);
+			if (!bp)
+			{
+				if (cb)
+					cb->on_error("Failed to parse blueprint", archive_path);
+				return false;
+			}
 
-    // Open archive
-    ZipSnapshotReader reader;
-    std::string archive_path_str{archive_path};
-    if (!reader.open(archive_path_str))
-    {
-        if (cb)
-            cb->on_error("Failed to open snapshot", archive_path);
-        return false;
-    }
+			bool result = restore(bp, archive_path, cb, simulate);
+			bp->release(REFCOUNT_DEBUG_ARGS);
+			return result;
+		}
 
-    // Run PreRestore hooks (skip in simulate mode)
-    if (!simulate && !run_hooks(bp, Phase::PreRestore, cb, skip_all))
-        return false;
+		bool Orchestrator::restore(const Blueprint* bp, std::string_view archive_path, IActionCallback* cb, bool simulate)
+		{
+			if (!bp)
+				return false;
 
-    // Clean existing resources (reverse order)
-    auto* clean_ctx = ActionContext::for_clean(bp, cb);
-    clean_ctx->set_skip_all_errors(skip_all);
-    clean_ctx->set_simulate(simulate);
-    const auto& actions = bp->actions();
+			bool skip_all = false;
 
-    for (auto it = actions.rbegin(); it != actions.rend(); ++it)
-    {
-        if (!(*it)->clean(clean_ctx))
-        {
-            clean_ctx->release(REFCOUNT_DEBUG_ARGS);
-            return false;
-        }
-    }
+			// Open archive
+			ZipSnapshotReader reader;
+			std::string archive_path_str{ archive_path };
+			if (!reader.open(archive_path_str))
+			{
+				if (cb)
+					cb->on_error("Failed to open snapshot", archive_path);
+				return false;
+			}
 
-    skip_all = clean_ctx->skip_all_errors();
-    clean_ctx->release(REFCOUNT_DEBUG_ARGS);
+			// Run PreRestore hooks (skip in simulate mode)
+			if (!simulate && !run_hooks(bp, Phase::PreRestore, cb, skip_all))
+				return false;
 
-    // Restore each action (forward order)
-    auto* ctx = ActionContext::for_restore(bp, &reader, cb);
-    ctx->set_skip_all_errors(skip_all);
-    ctx->set_simulate(simulate);
+			// Clean existing resources (reverse order)
+			auto* clean_ctx = ActionContext::for_clean(bp, cb);
+			clean_ctx->set_skip_all_errors(skip_all);
+			clean_ctx->set_simulate(simulate);
+			const auto& actions = bp->actions();
 
-    bool success = true;
-    for (const auto* action : actions)
-    {
-        if (!action->restore(ctx))
-        {
-            success = false;
-            break;
-        }
-    }
+			for (auto it = actions.rbegin(); it != actions.rend(); ++it)
+			{
+				if (!(*it)->clean(clean_ctx))
+				{
+					clean_ctx->release(REFCOUNT_DEBUG_ARGS);
+					return false;
+				}
+			}
 
-    skip_all = ctx->skip_all_errors();
-    ctx->release(REFCOUNT_DEBUG_ARGS);
+			skip_all = clean_ctx->skip_all_errors();
+			clean_ctx->release(REFCOUNT_DEBUG_ARGS);
 
-    if (!success)
-        return false;
+			// Restore each action (forward order)
+			auto* ctx = ActionContext::for_restore(bp, &reader, cb);
+			ctx->set_skip_all_errors(skip_all);
+			ctx->set_simulate(simulate);
 
-    // Run PostRestore hooks (skip in simulate mode)
-    if (!simulate && !run_hooks(bp, Phase::PostRestore, cb, skip_all))
-        return false;
+			bool success = true;
+			for (const auto* action : actions)
+			{
+				if (!action->restore(ctx))
+				{
+					success = false;
+					break;
+				}
+			}
 
-    if (cb)
-        cb->on_progress("Restore", "Complete", 100);
+			skip_all = ctx->skip_all_errors();
+			ctx->release(REFCOUNT_DEBUG_ARGS);
 
-    return true;
-}
+			if (!success)
+				return false;
 
-bool clean(const Blueprint* bp, IActionCallback* cb, bool simulate)
-{
-    if (!bp)
-        return false;
+			// Run PostRestore hooks (skip in simulate mode)
+			if (!simulate && !run_hooks(bp, Phase::PostRestore, cb, skip_all))
+				return false;
 
-    bool skip_all = false;
+			if (cb)
+				cb->on_progress("Restore", "Complete", 100);
 
-    // Run PreClean hooks (skip in simulate mode)
-    if (!simulate && !run_hooks(bp, Phase::PreClean, cb, skip_all))
-        return false;
+			return true;
+		}
 
-    // Create context
-    auto* ctx = ActionContext::for_clean(bp, cb);
-    ctx->set_skip_all_errors(skip_all);
-    ctx->set_simulate(simulate);
+		bool Orchestrator::clean(const Blueprint* bp, IActionCallback* cb, bool simulate)
+		{
+			if (!bp)
+				return false;
 
-    // Clean each action (reverse order)
-    bool success = true;
-    const auto& actions = bp->actions();
+			bool skip_all = false;
 
-    for (auto it = actions.rbegin(); it != actions.rend(); ++it)
-    {
-        if (!(*it)->clean(ctx))
-        {
-            success = false;
-            break;
-        }
-    }
+			// Run PreClean hooks (skip in simulate mode)
+			if (!simulate && !run_hooks(bp, Phase::PreClean, cb, skip_all))
+				return false;
 
-    skip_all = ctx->skip_all_errors();
-    ctx->release(REFCOUNT_DEBUG_ARGS);
+			// Create context
+			auto* ctx = ActionContext::for_clean(bp, cb);
+			ctx->set_skip_all_errors(skip_all);
+			ctx->set_simulate(simulate);
 
-    // Run PostClean hooks (even if clean had failures, skip in simulate mode)
-    if (!simulate)
-        run_hooks(bp, Phase::PostClean, cb, skip_all);
+			// Clean each action (reverse order)
+			bool success = true;
+			const auto& actions = bp->actions();
 
-    return success;
-}
+			for (auto it = actions.rbegin(); it != actions.rend(); ++it)
+			{
+				if (!(*it)->clean(ctx))
+				{
+					success = false;
+					break;
+				}
+			}
 
-std::vector<VerifyResult> verify(const Blueprint* bp, IActionCallback* cb)
-{
-    std::vector<VerifyResult> results;
+			skip_all = ctx->skip_all_errors();
+			ctx->release(REFCOUNT_DEBUG_ARGS);
 
-    if (!bp)
-        return results;
+			// Run PostClean hooks (even if clean had failures, skip in simulate mode)
+			if (!simulate)
+				run_hooks(bp, Phase::PostClean, cb, skip_all);
 
-    auto* ctx = ActionContext::for_clean(bp, cb);
+			return success;
+		}
 
-    for (const auto* action : bp->actions())
-    {
-        if (cb)
-            cb->on_progress("Verify", action->description().c_str(), -1);
+		std::vector<VerifyResult> Orchestrator::verify(const Blueprint* bp, IActionCallback* cb)
+		{
+			std::vector<VerifyResult> results;
 
-        results.push_back(action->verify(ctx));
-    }
+			if (!bp)
+				return results;
 
-    ctx->release(REFCOUNT_DEBUG_ARGS);
-    return results;
-}
+			auto* ctx = ActionContext::for_clean(bp, cb);
 
-} // namespace orchestrator
+			for (const auto* action : bp->actions())
+			{
+				if (cb)
+					cb->on_progress("Verify", action->description().c_str(), -1);
 
-// =============================================================================
-// AbortOnErrorCallback
-// =============================================================================
+				results.push_back(action->verify(ctx));
+			}
 
-void AbortOnErrorCallback::on_progress(std::string_view phase, std::string_view detail, int /*percent*/)
-{
-    spdlog::info("[{}] {}", phase, detail);
-}
+			ctx->release(REFCOUNT_DEBUG_ARGS);
+			return results;
+		}
 
-void AbortOnErrorCallback::on_warning(std::string_view message)
-{
-    spdlog::warn("{}", message);
-}
+	// =============================================================================
+	// AbortOnErrorCallback
+	// =============================================================================
 
-IActionCallback::Decision AbortOnErrorCallback::on_error(std::string_view message, std::string_view context)
-{
-    spdlog::error("{}: {}", message, context);
-    return Decision::Abort;
-}
+	void AbortOnErrorCallback::on_progress(std::string_view phase, std::string_view detail, int /*percent*/)
+	{
+		spdlog::info("[{}] {}", phase, detail);
+	}
 
-IActionCallback::Decision AbortOnErrorCallback::on_file_conflict(std::string_view path, std::string_view action)
-{
-    spdlog::warn("File conflict: {} ({})", path, action);
-    return Decision::Continue; // Overwrite by default
-}
+	void AbortOnErrorCallback::on_warning(std::string_view message)
+	{
+		spdlog::warn("{}", message);
+	}
+
+	IActionCallback::Decision AbortOnErrorCallback::on_error(std::string_view message, std::string_view context)
+	{
+		spdlog::error("{}: {}", message, context);
+		return Decision::Abort;
+	}
+
+	IActionCallback::Decision AbortOnErrorCallback::on_file_conflict(std::string_view path, std::string_view action)
+	{
+		spdlog::warn("File conflict: {} ({})", path, action);
+		return Decision::Continue; // Overwrite by default
+	}
 
 } // namespace insti

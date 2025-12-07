@@ -1,8 +1,8 @@
 #pragma once
 
 #include <insti/registry/blueprint_cache.h>
-#include <insti/core/project_blueprint.h>
-#include <insti/core/instance_blueprint.h>
+#include <insti/core/project.h>
+#include <insti/core/instance.h>
 #include <vector>
 #include <string>
 #include <string_view>
@@ -34,12 +34,8 @@ namespace insti
 
 		/// Get the currently installed instance, if any.
 		/// Scans INSTALLDIR paths from known instance blueprints for blueprint.xml.
-		/// Returns matching InstanceBlueprint* (caller must release) or nullptr if none installed.
-		InstanceBlueprint* installed_instance() const;
-
-		/// Notify registry that a backup completed and a new snapshot was created.
-		/// @param snapshot_path Path to the newly created snapshot archive
-		void notify_backup_complete(const std::string& snapshot_path);
+		/// Returns matching Instance* (caller must release) or nullptr if none installed.
+		Instance* installed_instance() const;
 
 		/// Notify registry that a restore completed.
 		/// @param install_dir The INSTALLDIR where instance blueprint was written
@@ -48,18 +44,18 @@ namespace insti
 		/// Notify registry that a clean completed.
 		void notify_clean_complete();
 
-		pnq::RefCountedVector<InstanceBlueprint*> discover_instances(std::string_view filter_text)
+		pnq::RefCountedVector<Instance*> discover_instances(std::string_view filter_text)
 		{
-			return discover<InstanceBlueprint>(filter_text, m_instance_blueprints);
+			return discover<Instance>(filter_text, m_instance_blueprints);
 		}
 
-		pnq::RefCountedVector<ProjectBlueprint*> discover_projects(std::string_view filter_text)
+		pnq::RefCountedVector<Project*> discover_projects(std::string_view filter_text)
 		{
-			return discover<ProjectBlueprint>(filter_text, m_project_blueprints);
+			return discover<Project>(filter_text, m_project_blueprints);
 		}
 
-		mutable pnq::RefCountedVector<InstanceBlueprint*> m_instance_blueprints;
-		mutable pnq::RefCountedVector<ProjectBlueprint*> m_project_blueprints;
+		mutable pnq::RefCountedVector<Instance*> m_instance_blueprints;
+		mutable pnq::RefCountedVector<Project*> m_project_blueprints;
 
 	private:
 		template <typename T> pnq::RefCountedVector<T*> discover(std::string_view filter_text, const pnq::RefCountedVector<T*>& blueprints)

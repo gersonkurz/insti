@@ -64,7 +64,7 @@ static std::string BrowseForFolder(HWND hwnd, const char* title);
 static std::string FormatFileSize(uint64_t bytes);
 static std::string FormatTimestamp(std::chrono::system_clock::time_point tp);
 static std::string ShowSaveDialog(HWND hwnd, const char* filter, const char* default_name, const char* default_ext);
-static void StartBackupFromBlueprint(insti::ProjectBlueprint* bp_entry);
+static void StartBackupFromBlueprint(insti::Project* bp_entry);
 
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -315,10 +315,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 		// Blueprint selector combobox
 		ImGui::SetNextItemWidth(200.0f);
 
-		pnq::RefCountedVector<insti::InstanceBlueprint*> no_instances;
-		pnq::RefCountedVector<insti::ProjectBlueprint*> no_projects;
-		pnq::RefCountedVector<insti::InstanceBlueprint*>* instances{ &no_instances };
-		pnq::RefCountedVector<insti::ProjectBlueprint*>* projects{ &no_projects };
+		pnq::RefCountedVector<insti::Instance*> no_instances;
+		pnq::RefCountedVector<insti::Project*> no_projects;
+		pnq::RefCountedVector<insti::Instance*>* instances{ &no_instances };
+		pnq::RefCountedVector<insti::Project*>* projects{ &no_projects };
 
 		// helper: index of current selection in combobox. it's a bit tricky, I know
 		int selected_blueprint_index = -1;
@@ -375,7 +375,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 		}
 		const char* preview = "";
 		
-		if (ImGui::BeginCombo("##ProjectBlueprint", name_of_selected_project.c_str()))
+		if (ImGui::BeginCombo("##Project", name_of_selected_project.c_str()))
 		{
 			for (int i = 0; i < (int)projects->size(); ++i)
 			{
@@ -452,7 +452,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 				app.active_blueprint->release(REFCOUNT_DEBUG_ARGS);
 			app.active_blueprint = blueprint;
 
-			app.worker->post(instinctiv::StartClean{ blueprint, blueprint->name(), app.dry_run });
+			app.worker->post(instinctiv::StartClean{ app.m_snapshot_registry, blueprint, app.dry_run });
 		}
 		ImGui::EndDisabled();
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_blueprint)
@@ -498,7 +498,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
 		const auto search_text = pnq::string::lowercase(app.filter_text);
 		//instinctiv::config::theSettings.application.lastBlueprint.set(((*projects)[i]->name());
-		pnq::RefCountedVector<insti::InstanceBlueprint*> filtered;
+		pnq::RefCountedVector<insti::Instance*> filtered;
 		for (auto* bp : *instances)
 		{
 			if (bp->matches(search_text))
@@ -509,8 +509,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
 		// Sort by timestamp (newest first) <- TODO: should use UI sorting instead
 		std::sort(filtered.begin(), filtered.end(),
-			[](insti::InstanceBlueprint* a, insti::InstanceBlueprint* b) {
-				return a->instance().timestamp > b->instance().timestamp;
+			[](insti::Instance* a, insti::Instance* b) {
+				return a->m_timestamp > b->m_timestamp;
 			});
 
 		if (filtered.empty())
@@ -539,15 +539,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 					ImGui::TableNextRow();
 
 					// Check installation status for row highlighting
-					auto status = instinctiv::InstallStatus::NotInstalled; // TBD: do something like the old "app.get_install_status(entry);"
+					auto status = entry->m_install_status;
 					bool is_selected = (app.selected_snapshot == entry);
 
 					// Set row background color for installed snapshot
-					if (status == instinctiv::InstallStatus::Installed)
+					if (status == insti::InstallStatus::Installed)
 					{
 						ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(100, 200, 100, 60));
 					}
-					else if (status == instinctiv::InstallStatus::DifferentVersion)
+					else if (status == insti::InstallStatus::DifferentVersion)
 					{
 						ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(220, 180, 50, 40));
 					}
@@ -561,17 +561,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 					}
 
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->instance().description.c_str());
+					ImGui::Text("%s", entry->m_description.c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->instance().timestamp_string().c_str());
+					ImGui::Text("%s", entry->timestamp_string().c_str());
 					ImGui::TableNextColumn();
 					ImGui::Text("%s", entry->installdir().c_str());
 					ImGui::TableNextColumn();
 					ImGui::Text("%s", entry->version().c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->instance().machine.c_str());
+					ImGui::Text("%s", entry->m_machine.c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->instance().user.c_str());
+					ImGui::Text("%s", entry->m_user.c_str());
 				}
 
 				ImGui::EndTable();
@@ -888,14 +888,6 @@ static void ProcessWorkerMessages()
 						app.m_snapshot_registry->notify_restore_complete("");
 					else if (app.progress_operation == "Clean")
 						app.m_snapshot_registry->notify_clean_complete();
-					else if (app.progress_operation == "Backup" && !m.snapshot_path.empty())
-						app.m_snapshot_registry->notify_backup_complete(m.snapshot_path);
-				}
-
-				// Refresh registry if backup succeeded (new snapshot may have been created)
-				if (m.success && app.progress_operation == "Backup")
-				{
-					app.worker->post(instinctiv::RefreshRegistry{ app.registry_roots });
 				}
 			}
 			else if constexpr (std::is_same_v<T, instinctiv::ErrorDecision>)
@@ -969,13 +961,15 @@ static std::string ShowSaveDialog(HWND hwnd, const char* filter, const char* def
 }
 
 // Start backup operation from a blueprint entry
-static void StartBackupFromBlueprint(insti::ProjectBlueprint* blueprint)
+static void StartBackupFromBlueprint(insti::Project* blueprint)
 {
 	auto& app = instinctiv::AppState::instance();
 
 	spdlog::info("StartBackupFromBlueprint: {}", blueprint->source_path());
 
 	spdlog::info("Blueprint loaded: {} v{}", blueprint->name(), blueprint->version());
+
+	// TBD: we should really show a dialog here instead of doing auto-start
 
 	// Get output directory from settings (first registry root)
 	auto& registrySettings = instinctiv::config::theSettings.registry;
@@ -1044,7 +1038,7 @@ static void StartBackupFromBlueprint(insti::ProjectBlueprint* blueprint)
 	app.progress_log.push_back("Output: " + output_path.string());
 
 	// Start backup on worker thread
-	app.worker->post(instinctiv::StartBackup{ blueprint, output_path.string() });
+	app.worker->post(instinctiv::StartBackup{ app.m_snapshot_registry, blueprint, output_path.string() });
 }
 
 // Progress dialog during operations

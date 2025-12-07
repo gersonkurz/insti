@@ -16,11 +16,9 @@ bool BlueprintCache::open(std::string_view path)
 {
     close();
 
-    m_db = std::make_unique<pnq::sqlite::Database>();
-    if (!m_db->open(path))
+    if (!m_db.open(path))
     {
         spdlog::error("BlueprintCache: failed to open database at {}", path);
-        m_db.reset();
         return false;
     }
 
@@ -43,26 +41,25 @@ bool BlueprintCache::open_default()
 
 void BlueprintCache::close()
 {
-    if (m_db)
+    if (is_open())
     {
-        m_db->close();
-        m_db.reset();
+        m_db.close();
     }
 }
 
 bool BlueprintCache::is_open() const
 {
-    return m_db && m_db->is_valid();
+    return m_db.is_valid();
 }
 
-std::optional<std::string> BlueprintCache::get(std::string_view path, int64_t mtime, int64_t size)
+std::optional<std::string> BlueprintCache::get(std::string_view path, int64_t mtime, int64_t size, InstallStatus& install_status)
 {
     if (!is_open())
         return std::nullopt;
 
     std::string normalized = normalize_path(path);
 
-    pnq::sqlite::Statement stmt(*m_db, "SELECT mtime, size, xml FROM blueprints WHERE path = ?");
+    pnq::sqlite::Statement stmt{ m_db, "SELECT mtime, size, xml, install_status FROM blueprints WHERE path = ?" };
     stmt.bind(normalized);
 
     if (!stmt.execute() || stmt.is_empty())
@@ -78,26 +75,39 @@ std::optional<std::string> BlueprintCache::get(std::string_view path, int64_t mt
                       path, cached_mtime, mtime, cached_size, size);
         return std::nullopt;
     }
-
+	install_status = install_status_from_string(stmt.get_text(3));
     return stmt.get_text(2);
 }
 
-void BlueprintCache::put(std::string_view path, int64_t mtime, int64_t size, std::string_view xml)
+bool BlueprintCache::put(std::string_view path, int64_t mtime, int64_t size, std::string_view xml, InstallStatus install_status)
 {
     if (!is_open())
-        return;
+        return false;
 
-    std::string normalized = normalize_path(path);
+    const auto normalized{ normalize_path(path) };
 
-    pnq::sqlite::Statement stmt(*m_db,
-        "INSERT OR REPLACE INTO blueprints (path, mtime, size, xml) VALUES (?, ?, ?, ?)");
+    pnq::sqlite::Statement stmt{ m_db,
+        "INSERT OR REPLACE INTO blueprints (path, mtime, size, xml, install_status) VALUES (?, ?, ?, ?, ?)" };
     stmt.bind(normalized);
     stmt.bind(mtime);
     stmt.bind(size);
     stmt.bind(xml);
-    stmt.execute();
+    stmt.bind(as_string(install_status));
+    return stmt.execute();
+}
 
-    spdlog::debug("BlueprintCache: cached {}", path);
+bool BlueprintCache::update_install_status(std::string_view path, InstallStatus install_status)
+{
+    if (!is_open())
+        return false;
+
+    const auto normalized{ normalize_path(path) };
+
+    pnq::sqlite::Statement stmt{ m_db,
+        "UPDATE blueprints SET install_status = ? WHERE PATH = ?" };
+    stmt.bind(as_string(install_status));
+    stmt.bind(normalized);
+    return stmt.execute();
 }
 
 void BlueprintCache::remove(std::string_view path)
@@ -107,7 +117,7 @@ void BlueprintCache::remove(std::string_view path)
 
     std::string normalized = normalize_path(path);
 
-    pnq::sqlite::Statement stmt(*m_db, "DELETE FROM blueprints WHERE path = ?");
+    pnq::sqlite::Statement stmt{ m_db, "DELETE FROM blueprints WHERE path = ?" };
     stmt.bind(normalized);
     stmt.execute();
 }
@@ -117,7 +127,7 @@ void BlueprintCache::clear()
     if (!is_open())
         return;
 
-    m_db->execute("DELETE FROM blueprints");
+    m_db.execute("DELETE FROM blueprints");
     spdlog::info("BlueprintCache: cleared all entries");
 }
 
@@ -133,14 +143,15 @@ std::string BlueprintCache::default_path()
 
 void BlueprintCache::ensure_schema()
 {
-    if (!m_db->table_exists("blueprints"))
+    if (!m_db.table_exists("blueprints"))
     {
-        m_db->execute(R"(
+        m_db.execute(R"(
             CREATE TABLE blueprints (
                 path TEXT PRIMARY KEY,
                 mtime INTEGER NOT NULL,
                 size INTEGER NOT NULL,
-                xml TEXT NOT NULL
+                xml TEXT NOT NULL,
+                install_status TEXT NOT NULL
             )
         )");
         spdlog::info("BlueprintCache: created schema");

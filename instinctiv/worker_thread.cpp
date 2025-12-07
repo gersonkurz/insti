@@ -180,22 +180,27 @@ void WorkerThread::do_backup(const StartBackup& cmd)
     m_busy.store(true);
     m_cancel_requested.store(false);
 
-    WorkerCallback callback(this);
-    bool success = insti::orchestrator::backup(cmd.blueprint, cmd.output_path, &callback);
+    WorkerCallback callback{ this };
+    insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
+    bool success = orc.backup(cmd.m_blueprint.get(), cmd.m_output_path, &callback);
 
     // Extract project name from filename (matches how discover() parses it)
     std::string project;
-    std::filesystem::path output_path{cmd.output_path};
+    std::filesystem::path output_path{cmd.m_output_path};
     std::string filename = output_path.stem().string(); // Remove .zip
     size_t dash_pos = filename.find('-');
     if (dash_pos != std::string::npos)
         project = filename.substr(0, dash_pos);
 
+    if (success)
+    {
+        // update registry
+    }
+
     post_to_ui(OperationComplete{
         success,
         success ? "Backup completed" : "Backup failed",
-        project,
-        cmd.output_path
+        project
     });
     m_busy.store(false);
 }
@@ -209,9 +214,9 @@ void WorkerThread::do_restore(const StartRestore& cmd)
 
     // Open archive and load blueprint
     insti::ZipSnapshotReader reader;
-    if (!reader.open(cmd.archive_path))
+    if (!reader.open(cmd.m_archive_path))
     {
-        post_to_ui(OperationComplete{false, "Failed to open snapshot", "", ""});
+        post_to_ui(OperationComplete{false, "Failed to open snapshot", ""});
         m_busy.store(false);
         return;
     }
@@ -219,7 +224,7 @@ void WorkerThread::do_restore(const StartRestore& cmd)
     std::string blueprint_xml = reader.read_text("blueprint.xml");
     if (blueprint_xml.empty())
     {
-        post_to_ui(OperationComplete{false, "No blueprint.xml in snapshot", "", ""});
+        post_to_ui(OperationComplete{ false, "No blueprint.xml in snapshot", "" });
         m_busy.store(false);
         return;
     }
@@ -227,21 +232,22 @@ void WorkerThread::do_restore(const StartRestore& cmd)
     auto* bp = insti::Blueprint::load_from_string(blueprint_xml);
     if (!bp)
     {
-        post_to_ui(OperationComplete{false, "Failed to parse blueprint", "", ""});
+        post_to_ui(OperationComplete{false, "Failed to parse blueprint", ""});
         m_busy.store(false);
         return;
     }
 
     // Apply variable overrides
-    for (const auto& [name, value] : cmd.variable_overrides)
+    for (const auto& [name, value] : cmd.m_variable_overrides)
         bp->set_override(name, value);
-
-    bool success = insti::orchestrator::restore(bp, cmd.archive_path, &callback);
+    
+    insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
+    bool success = orc.restore(bp, cmd.m_archive_path, &callback);
     bp->release(REFCOUNT_DEBUG_ARGS);
 
     // Extract project name from filename (matches how discover() parses it)
     std::string project;
-    std::filesystem::path archive_path{cmd.archive_path};
+    std::filesystem::path archive_path{cmd.m_archive_path};
     std::string filename = archive_path.stem().string(); // Remove .zip
     size_t dash_pos = filename.find('-');
     if (dash_pos != std::string::npos)
@@ -250,8 +256,7 @@ void WorkerThread::do_restore(const StartRestore& cmd)
     post_to_ui(OperationComplete{
         success,
         success ? "Restore completed" : "Restore failed",
-        project,
-        cmd.archive_path
+        project
     });
     m_busy.store(false);
 }
@@ -261,16 +266,17 @@ void WorkerThread::do_clean(const StartClean& cmd)
     m_busy.store(true);
     m_cancel_requested.store(false);
 
-    WorkerCallback callback(this);
-    bool success = insti::orchestrator::clean(cmd.blueprint, &callback, cmd.simulate);
+    WorkerCallback callback{ this };
+    insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
+    bool success = orc.clean(cmd.m_blueprint.get(), &callback, cmd.m_simulate);
 
-    std::string msg = cmd.simulate
+    std::string msg = cmd.m_simulate
         ? (success ? "Dry-run completed" : "Dry-run failed")
         : (success ? "Clean completed" : "Clean failed");
 
     // Pass project name so UI can update installation registry
     // Empty snapshot_path signals this is a clean (not backup/restore)
-    post_to_ui(OperationComplete{success, msg, cmd.project, ""});
+    post_to_ui(OperationComplete{success, msg, cmd.m_blueprint.get()->name()});
     m_busy.store(false);
 }
 
@@ -279,8 +285,9 @@ void WorkerThread::do_verify(const StartVerify& cmd)
     m_busy.store(true);
     m_cancel_requested.store(false);
 
-    WorkerCallback callback(this);
-    auto results = insti::orchestrator::verify(cmd.blueprint, &callback);
+    WorkerCallback callback{ this };
+    insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
+    auto results = orc.verify(cmd.m_blueprint.get(), &callback);
 
     post_to_ui(VerifyComplete{std::move(results)});
     m_busy.store(false);

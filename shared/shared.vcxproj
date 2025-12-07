@@ -86,9 +86,9 @@
     <ClCompile Include="src\actions\service.cpp" />
     <ClCompile Include="src\core\action_context.cpp" />
     <ClCompile Include="src\core\blueprint.cpp" />
-    <ClCompile Include="src\core\instance_blueprint.cpp" />
+    <ClCompile Include="src\core\instance.cpp" />
     <ClCompile Include="src\core\orchestrator.cpp" />
-    <ClCompile Include="src\core\project_blueprint.cpp" />
+    <ClCompile Include="src\core\project.cpp" />
     <ClCompile Include="src\hooks\kill_process.cpp" />
     <ClCompile Include="src\hooks\run_process.cpp" />
     <ClCompile Include="src\hooks\sql.cpp" />
@@ -126,10 +126,10 @@
     <ClInclude Include="include\insti\core\action_callback.h" />
     <ClInclude Include="include\insti\core\action_context.h" />
     <ClInclude Include="include\insti\core\blueprint.h" />
-    <ClInclude Include="include\insti\core\instance_blueprint.h" />
+    <ClInclude Include="include\insti\core\instance.h" />
     <ClInclude Include="include\insti\core\orchestrator.h" />
     <ClInclude Include="include\insti\core\phase.h" />
-    <ClInclude Include="include\insti\core\project_blueprint.h" />
+    <ClInclude Include="include\insti\core\project.h" />
     <ClInclude Include="include\insti\hooks\hook.h" />
     <ClInclude Include="include\insti\hooks\kill_process.h" />
     <ClInclude Include="include\insti\hooks\run_process.h" />

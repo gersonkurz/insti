@@ -109,13 +109,13 @@
     <ClCompile Include="src\core\blueprint.cpp">
       <Filter>src\core</Filter>
     </ClCompile>
-    <ClCompile Include="src\core\instance_blueprint.cpp">
+    <ClCompile Include="src\core\instance.cpp">
       <Filter>src\core</Filter>
     </ClCompile>
     <ClCompile Include="src\core\orchestrator.cpp">
       <Filter>src\core</Filter>
     </ClCompile>
-    <ClCompile Include="src\core\project_blueprint.cpp">
+    <ClCompile Include="src\core\project.cpp">
       <Filter>src\core</Filter>
     </ClCompile>
     <ClCompile Include="src\snapshot\reader.cpp">
@@ -189,7 +189,7 @@
     <ClInclude Include="include\insti\core\blueprint.h">
       <Filter>include\core</Filter>
     </ClInclude>
-    <ClInclude Include="include\insti\core\instance_blueprint.h">
+    <ClInclude Include="include\insti\core\instance.h">
       <Filter>include\core</Filter>
     </ClInclude>
     <ClInclude Include="include\insti\core\orchestrator.h">
@@ -198,7 +198,7 @@
     <ClInclude Include="include\insti\core\phase.h">
       <Filter>include\core</Filter>
     </ClInclude>
-    <ClInclude Include="include\insti\core\project_blueprint.h">
+    <ClInclude Include="include\insti\core\project.h">
       <Filter>include\core</Filter>
     </ClInclude>
     <ClInclude Include="include\insti\hooks\hook.h">

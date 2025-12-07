@@ -132,8 +132,8 @@ namespace insti
         Blueprint() = default;
         ~Blueprint();
 
-        friend class ProjectBlueprint;
-        friend class InstanceBlueprint;
+        friend class Project;
+        friend class Instance;
 
         /// Internal: parse XML content into this blueprint.
         /// @param xml XML string to parse

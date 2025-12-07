@@ -17,13 +17,6 @@
 namespace instinctiv
 {
 
-	/// Installation status for display.
-	enum class InstallStatus
-	{
-		NotInstalled,       // No version installed
-		Installed,          // This exact version installed
-		DifferentVersion    // Different version installed
-	};
 
 	/// Application state singleton.
 	class AppState
@@ -38,7 +31,7 @@ namespace instinctiv
 		void shutdown();
 
 		// UI State - Snapshots
-		insti::ProjectBlueprint* selected_snapshot = nullptr;  // Currently selected snapshot
+		insti::Project* selected_snapshot = nullptr;  // Currently selected snapshot
 
 		// UI State - Blueprints
 		std::string filter_text;                    // Filter input
@@ -60,7 +53,7 @@ namespace instinctiv
 		std::string progress_detail;                // Current item being processed
 		int progress_percent = -1;                  // Progress percentage (-1 = indeterminate)
 		std::vector<std::string> progress_log;      // Log messages
-		insti::ProjectBlueprint* active_blueprint = nullptr;  // Blueprint being used for operation (owned)
+		insti::Project* active_blueprint = nullptr;  // Blueprint being used for operation (owned)
 
 		// Operation options
 		bool dry_run = false;                       // Simulate mode - log actions without performing them

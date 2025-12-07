@@ -1,6 +1,6 @@
 #include "pch.h"
 #include <insti/insti.h>
-#include <insti/core/project_blueprint.h>
+#include <insti/core/project.h>
 
 namespace insti
 {
@@ -163,14 +163,14 @@ void Blueprint::set_override(std::string_view name, std::string_view value)
 
 Blueprint* Blueprint::load_from_file(std::string_view path)
 {
-    // Delegate to ProjectBlueprint for proper typing
-    return ProjectBlueprint::load_from_file(path);
+    // Delegate to Project for proper typing
+    return Project::load_from_file(path);
 }
 
 Blueprint* Blueprint::load_from_string(std::string_view xml)
 {
     // For backward compatibility - creates a base Blueprint
-    // New code should use ProjectBlueprint::load_from_file or InstanceBlueprint::load_from_archive
+    // New code should use Project::load_from_file or Instance::load_from_archive
     auto bp = new Blueprint();
     bp->populate_builtins();
 

@@ -82,8 +82,8 @@ namespace insti
 // Core
 #include <insti/core/phase.h>
 #include <insti/core/blueprint.h>
-#include <insti/core/project_blueprint.h>
-#include <insti/core/instance_blueprint.h>
+#include <insti/core/project.h>
+#include <insti/core/instance.h>
 #include <insti/core/action_callback.h>
 #include <insti/core/action_context.h>
 #include <insti/core/orchestrator.h>

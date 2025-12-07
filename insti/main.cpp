@@ -256,13 +256,13 @@ int cmd_restore(const std::string& snapshot_ref, const std::string& dest_overrid
             for (const auto* entry : matches)
             {
                 con::write("  ");
-                con::write_line(entry->snapshot_path());
+                con::write_line(entry->m_snapshot_path);
                 PNQ_RELEASE(entry);
             }
             return 1;
         }
 
-        snapshot_path = matches[0]->snapshot_path();
+        snapshot_path = matches[0]->m_snapshot_path;
         print_verbose("Resolved to: " + snapshot_path);
         PNQ_RELEASE(matches[0]);
     }
@@ -537,13 +537,13 @@ int cmd_list_registry(const std::string& filter_project)
         con::write(entry->name());
         con::write(C_RESET);
         con::write(C_DIM " [");
-        con::write(entry->instance().timestamp_string());
+        con::write(entry->timestamp_string());
         con::write_line("]" C_RESET);
 
         if (g_verbose)
         {
             con::write(C_DIM "    ");
-            con::write_line(entry->snapshot_path());
+            con::write_line(entry->m_snapshot_path);
             con::write(C_RESET);
         }
     }
