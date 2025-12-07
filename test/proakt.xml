@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint name="ProAKT 3.6 IBM" version="1.0">
+    <description>ProAKT 3.6 IBM with GRG TCR-71 support</description>
+
+    <resources>
+        <files path="${PROGRAMFILES_X86}\ProAKT" archive="files/proakt"/>
+        <files path="${PROGRAMDATA}\ProAKT" archive="files/data"/>
+        <registry key="HKEY_CLASSES_ROOT\WOSA/XFS_ROOT" archive="registry/wosaxfs.reg"/>
+        <registry key="HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Pergamon" archive="registry/pergamon.reg"/>
+    </resources>
+
+    <hooks>
+        <run phase="PreBackup" path="${PROGRAMFILES_X86}\ProAKT\stopakt.exe" wait="true">
+            <arg>/FORCE</arg>
+        </run>
+        <run phase="PostBackup" path="${PROGRAMFILES_X86}\ProAKT\startakt.exe" wait="false"/>
+    </hooks>
+</blueprint>

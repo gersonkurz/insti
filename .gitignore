@@ -1,12 +1,18 @@
-# git ignore file
-bin/*
-insti/bin/*
-insti/obj/*
-instic/bin/*
-instic/obj/*
-insticore/bin/*
-insticore/obj/*
-regis3/bin/*
-regis3/obj/*
-*.suo
-/insti.v12.suo
+# Build output
+build-*/
+build/
+out/
+bin/**
+temp/**
+.claude/*
+
+
+# IDE
+.vs/
+.idea/
+*.vcxproj.user
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini

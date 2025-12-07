@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint name="SmallTest" version="1.0">
+    <description>Small test snapshot</description>
+
+    <resources>
+        <files path="${PROGRAMFILES_X86}\ProAKT\LANGUAGES" archive="languages"/>
+    </resources>
+</blueprint>

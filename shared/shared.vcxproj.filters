@@ -1,0 +1,253 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{1fabd6d9-bdef-4d0d-a4d1-ff25d697f9fa}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\registry">
+      <UniqueIdentifier>{6cf35151-4e2a-486f-986a-631ed977fa97}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\core">
+      <UniqueIdentifier>{55e9135c-358b-4130-8f31-7493e2513b1c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\actions">
+      <UniqueIdentifier>{6383cb62-636a-466b-9f66-a639a2abe2ca}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\snapshot">
+      <UniqueIdentifier>{8b6d58dd-635f-442c-a756-4625e4065637}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\hooks">
+      <UniqueIdentifier>{f7fac743-64ea-4883-8e47-92f9c0dfa3ae}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include">
+      <UniqueIdentifier>{fad291c0-294b-4ea6-8d45-8048965c5a1f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\actions">
+      <UniqueIdentifier>{07f91807-d0da-4162-9164-0ddd6832d9e3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\core">
+      <UniqueIdentifier>{50e99d91-091b-4c0f-bf6d-2821f0a884d8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\hooks">
+      <UniqueIdentifier>{f248b84b-a4d8-4535-a7f6-4f8fbe95457a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\registry">
+      <UniqueIdentifier>{83a198b7-2fe8-4663-92d0-63de008a8c1a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\snapshot">
+      <UniqueIdentifier>{8537f93c-5004-4fb5-9e68-070abe3c4c69}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="sqlite">
+      <UniqueIdentifier>{a5737841-c4ce-42c7-b6f4-50c1625df34a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="miniz">
+      <UniqueIdentifier>{cf5f0c2b-39b6-4d7a-ac9c-3db6b8efcd7f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pugixml">
+      <UniqueIdentifier>{3acc7099-02fd-4871-b636-5ceea06cf8f9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\pch.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\phase.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\registry\blueprint_cache.cpp">
+      <Filter>src\registry</Filter>
+    </ClCompile>
+    <ClCompile Include="src\registry\snapshot_registry.cpp">
+      <Filter>src\registry</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hooks\kill_process.cpp">
+      <Filter>src\hooks</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hooks\run_process.cpp">
+      <Filter>src\hooks</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hooks\sql.cpp">
+      <Filter>src\hooks</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hooks\substitute.cpp">
+      <Filter>src\hooks</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\action.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\copy_directory.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\copy_file.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\delimited_entry.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\environment.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\hosts.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\multistring_entry.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\registry.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\actions\service.cpp">
+      <Filter>src\actions</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\action_context.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\blueprint.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\instance_blueprint.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\orchestrator.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\project_blueprint.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\snapshot\reader.cpp">
+      <Filter>src\snapshot</Filter>
+    </ClCompile>
+    <ClCompile Include="src\snapshot\writer.cpp">
+      <Filter>src\snapshot</Filter>
+    </ClCompile>
+    <ClCompile Include="src\snapshot\zip_reader.cpp">
+      <Filter>src\snapshot</Filter>
+    </ClCompile>
+    <ClCompile Include="src\snapshot\zip_writer.cpp">
+      <Filter>src\snapshot</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\sqlite3-amalgamation\src\sqlite3\sqlite3.c">
+      <Filter>sqlite</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\miniz\miniz.c">
+      <Filter>miniz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\miniz\miniz_tdef.c">
+      <Filter>miniz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\miniz\miniz_tinfl.c">
+      <Filter>miniz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\miniz\miniz_zip.c">
+      <Filter>miniz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\pugixml\src\pugixml.cpp">
+      <Filter>pugixml</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\pch.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\action.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\copy_directory.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\copy_file.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\delimited_entry.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\environment.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\hosts.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\multistring_entry.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\registry.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\actions\service.h">
+      <Filter>include\actions</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\core\action_callback.h">
+      <Filter>include\core</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\core\action_context.h">
+      <Filter>include\core</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\core\blueprint.h">
+      <Filter>include\core</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\core\instance_blueprint.h">
+      <Filter>include\core</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\core\orchestrator.h">
+      <Filter>include\core</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\core\phase.h">
+      <Filter>include\core</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\core\project_blueprint.h">
+      <Filter>include\core</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\hooks\hook.h">
+      <Filter>include\hooks</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\hooks\kill_process.h">
+      <Filter>include\hooks</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\hooks\run_process.h">
+      <Filter>include\hooks</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\hooks\sql.h">
+      <Filter>include\hooks</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\hooks\substitute.h">
+      <Filter>include\hooks</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\snapshot\entry.h">
+      <Filter>include\snapshot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\snapshot\reader.h">
+      <Filter>include\snapshot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\snapshot\writer.h">
+      <Filter>include\snapshot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\snapshot\zip_reader.h">
+      <Filter>include\snapshot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\snapshot\zip_writer.h">
+      <Filter>include\snapshot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\registry\blueprint_cache.h">
+      <Filter>include\registry</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\registry\snapshot_registry.h">
+      <Filter>include\registry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\third_party\sqlite3-amalgamation\src\sqlite3\sqlite3.h">
+      <Filter>sqlite</Filter>
+    </ClInclude>
+    <ClInclude Include="..\third_party\sqlite3-amalgamation\src\sqlite3\sqlite3ext.h">
+      <Filter>sqlite</Filter>
+    </ClInclude>
+    <ClInclude Include="..\third_party\pugixml\src\pugiconfig.hpp">
+      <Filter>pugixml</Filter>
+    </ClInclude>
+    <ClInclude Include="..\third_party\pugixml\src\pugixml.hpp">
+      <Filter>pugixml</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

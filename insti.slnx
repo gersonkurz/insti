@@ -1,0 +1,16 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="insti/insti.vcxproj" Id="913015c8-572f-4c83-b4bc-697c189d7f1b">
+    <Platform Solution="*|ARM64" Project="x64" />
+  </Project>
+  <Project Path="instinctiv/instinctiv.vcxproj" Id="111ecf0c-117d-4a2d-93f6-619825c27489">
+    <Platform Solution="*|ARM64" Project="x64" />
+  </Project>
+  <Project Path="shared/shared.vcxproj" Id="819dfbee-bd81-4804-bb36-a39f9efe856e">
+    <Platform Solution="Release|ARM64" Project="x64" />
+  </Project>
+</Solution>

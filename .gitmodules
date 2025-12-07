@@ -1,0 +1,27 @@
+[submodule "third_party/spdlog"]
+	path = third_party/spdlog
+	url = https://github.com/gabime/spdlog.git
+[submodule "third_party/tomlplusplus"]
+	path = third_party/tomlplusplus
+	url = https://github.com/marzer/tomlplusplus.git
+[submodule "third_party/miniz"]
+	path = third_party/miniz
+	url = https://github.com/richgel999/miniz.git
+[submodule "third_party/pnq"]
+	path = third_party/pnq
+	url = https://github.com/gersonkurz/pnq
+[submodule "third_party/pugixml"]
+	path = third_party/pugixml
+	url = https://github.com/zeux/pugixml
+[submodule "third_party/argparse"]
+	path = third_party/argparse
+	url = https://github.com/p-ranav/argparse.git
+[submodule "third_party/imgui"]
+	path = third_party/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "third_party/SPSCQueue"]
+	path = third_party/SPSCQueue
+	url = https://github.com/rigtorp/SPSCQueue.git
+[submodule "third_party/sqlite3-amalgamation"]
+	path = third_party/sqlite3-amalgamation
+	url = git@github.com:gittiver/sqlite3-amalgamation.git
