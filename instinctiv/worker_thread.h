@@ -122,8 +122,7 @@ struct VerifyComplete
 struct RegistryRefreshComplete
 {
     bool success;
-    pnq::RefCountedVector<insti::ProjectBlueprint*> project_blueprints;   // Ownership transferred to UI
-    pnq::RefCountedVector<insti::InstanceBlueprint*> instance_blueprints; // Ownership transferred to UI
+    insti::SnapshotRegistry* snapshot_registry;
 };
 
 using UIMessage = std::variant<

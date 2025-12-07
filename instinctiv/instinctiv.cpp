@@ -68,6 +68,9 @@ static void StartBackupFromBlueprint(insti::ProjectBlueprint* bp_entry);
 
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+constexpr std::string_view ALL_PROJECTS = "(All Projects)";
+constexpr std::string_view NO_PROJECTS = "(No Projects Defined)";
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 {
 	// Initialize config and logging first
@@ -312,34 +315,80 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 		// Blueprint selector combobox
 		ImGui::SetNextItemWidth(200.0f);
 
-		const auto projects = app.snapshot_registry->discover_project_blueprints();
-		const auto instances = app.snapshot_registry->discover_instance_blueprints();
+		pnq::RefCountedVector<insti::InstanceBlueprint*> no_instances;
+		pnq::RefCountedVector<insti::ProjectBlueprint*> no_projects;
+		pnq::RefCountedVector<insti::InstanceBlueprint*>* instances{ &no_instances };
+		pnq::RefCountedVector<insti::ProjectBlueprint*>* projects{ &no_projects };
 
-		const char* preview = (app.selected_blueprint_index >= 0 && app.selected_blueprint_index < (int)projects.size())
-			? projects[app.selected_blueprint_index]->name().c_str()
-			: "(All Projects)";
-		if (ImGui::BeginCombo("##ProjectBlueprint", preview))
+		// helper: index of current selection in combobox. it's a bit tricky, I know
+		int selected_blueprint_index = -1;
+		std::string name_of_selected_project{ "" };
+
+		if (app.m_snapshot_registry)
 		{
-			// "All" option only if multiple blueprints
-			if (projects.size() > 1)
-			{
-				bool is_selected = (app.selected_blueprint_index < 0);
-				if (ImGui::Selectable("(All Project Blueprints)", is_selected))
-				{
-					app.selected_blueprint_index = -1;
-					instinctiv::config::theSettings.application.lastBlueprint.set("");
-				}
-				if (is_selected)
-					ImGui::SetItemDefaultFocus();
-			}
+			projects = &(app.m_snapshot_registry->m_project_blueprints);
+			instances = &(app.m_snapshot_registry->m_instance_blueprints);
 
-			for (int i = 0; i < (int)projects.size(); ++i)
+			if (projects->size() == 1)
 			{
-				bool is_selected = (app.selected_blueprint_index == i);
-				if (ImGui::Selectable(projects[i]->name().c_str(), is_selected))
+				selected_blueprint_index = 0;
+
+				// must select the one-and-only if not selected already
+				const auto lastBlueprint = instinctiv::config::theSettings.application.lastBlueprint.get();
+				name_of_selected_project = projects->at(0)->name();
+				if (!pnq::string::equals(lastBlueprint, name_of_selected_project))
 				{
-					app.selected_blueprint_index = i;
-					instinctiv::config::theSettings.application.lastBlueprint.set(projects[i]->name());
+					instinctiv::config::theSettings.application.lastBlueprint.set(name_of_selected_project);
+					instinctiv::config::theSettings.save(*g_pConfigBackend);
+				}
+			}
+			else if (projects->size() > 1)
+			{
+				// check if selection still possible
+				const auto lastBlueprint = instinctiv::config::theSettings.application.lastBlueprint.get();
+				bool found = false;
+				int current_index = 0;
+				for (const auto& project : *projects)
+				{
+					const auto nameOfThisProject = project->name();
+					if (pnq::string::equals(lastBlueprint, nameOfThisProject))
+					{
+						selected_blueprint_index = current_index;
+						name_of_selected_project = nameOfThisProject;
+						found = true;
+						break;
+					}
+					++current_index;
+				}
+				if (!found)
+				{
+					name_of_selected_project = projects->at(0)->name();
+					assert(!pnq::string::equals(lastBlueprint, name_of_selected_project));
+					instinctiv::config::theSettings.application.lastBlueprint.set(name_of_selected_project);
+					instinctiv::config::theSettings.save(*g_pConfigBackend);
+				}
+			}
+			else
+			{
+				// do not touch the configuration just yet, probably missing an update. keep selection at -1
+			}
+		}
+		const char* preview = "";
+		
+		if (ImGui::BeginCombo("##ProjectBlueprint", name_of_selected_project.c_str()))
+		{
+			for (int i = 0; i < (int)projects->size(); ++i)
+			{
+				bool is_selected = (selected_blueprint_index == i);
+				if (ImGui::Selectable((*projects)[i]->name().c_str(), is_selected))
+				{
+					/*if (selected_blueprint_index != i)
+					{
+						selected_blueprint_index = i;
+						instinctiv::config::theSettings.application.lastBlueprint.set((*projects)[i]->name());
+						instinctiv::config::theSettings.save(*g_pConfigBackend);
+					}
+					*/
 				}
 				if (is_selected)
 					ImGui::SetItemDefaultFocus();
@@ -373,13 +422,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 		ImGui::SameLine();
 
 		// Backup button - requires a blueprint selected
-		bool has_blueprint = (app.selected_blueprint_index >= 0 && app.selected_blueprint_index < (int)projects.size());
+		bool has_blueprint = (selected_blueprint_index >= 0 && selected_blueprint_index < (int)projects->size());
 		bool is_busy = app.worker->is_busy();
 
 		ImGui::BeginDisabled(!has_blueprint || is_busy);
 		if (ImGui::Button("Backup"))
 		{
-			StartBackupFromBlueprint(projects[app.selected_blueprint_index]);
+			StartBackupFromBlueprint((*projects)[selected_blueprint_index]);
 		}
 		ImGui::EndDisabled();
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_blueprint)
@@ -391,7 +440,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 		ImGui::BeginDisabled(!has_blueprint || is_busy);
 		if (ImGui::Button("Clean"))
 		{
-			auto* blueprint = projects[app.selected_blueprint_index];
+			auto* blueprint = (*projects)[selected_blueprint_index];
 			app.progress_operation = app.dry_run ? "Dry-run" : "Clean";
 			app.progress_phase = "Starting";
 			app.progress_detail = "";
@@ -410,6 +459,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 			ImGui::SetTooltip("Select a blueprint first");
 
 		ImGui::SameLine();
+		if (ImGui::Button("Restore"))
+		{
+			//StartBackupFromBlueprint((*projects)[selected_blueprint_index]);
+		}
+
+
+
+		ImGui::SameLine();
 
 		// Dry-run checkbox
 		ImGui::Checkbox("Dry-run", &app.dry_run);
@@ -425,23 +482,30 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
 		ImGui::Separator();
 
-		// Two-column layout: Snapshots (2/3) | Details (1/3)
 		float total_width = ImGui::GetContentRegionAvail().x;
-		float snapshot_width = total_width * 2.0f / 3.0f;
+		float snapshot_width = total_width;
 
 		// Left panel: Snapshot table (2/3 width)
 		ImGui::BeginChild("SnapshotList", ImVec2(snapshot_width, 0), true);
 
 		// Get selected blueprint name for filtering (spaces -> underscores to match filename convention)
 		std::string blueprint_filter;
-		if (app.selected_blueprint_index >= 0 && app.selected_blueprint_index < (int)projects.size())
+		if (selected_blueprint_index >= 0 && selected_blueprint_index < (int)projects->size())
 		{
-			blueprint_filter = projects[app.selected_blueprint_index]->name();
+			blueprint_filter = (*projects)[selected_blueprint_index]->name();
 			std::replace(blueprint_filter.begin(), blueprint_filter.end(), ' ', '_');
 		}
 
 		const auto search_text = pnq::string::lowercase(app.filter_text);
-		auto filtered = app.snapshot_registry->discover_instances(search_text);
+		//instinctiv::config::theSettings.application.lastBlueprint.set(((*projects)[i]->name());
+		pnq::RefCountedVector<insti::InstanceBlueprint*> filtered;
+		for (auto* bp : *instances)
+		{
+			if (bp->matches(search_text))
+			{
+				filtered.push_back(bp);
+			}
+		}
 
 		// Sort by timestamp (newest first) <- TODO: should use UI sorting instead
 		std::sort(filtered.begin(), filtered.end(),
@@ -458,12 +522,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 			ImGuiTableFlags table_flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
 				ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp;
 
-			if (ImGui::BeginTable("SnapshotTable", 4, table_flags))
+			if (ImGui::BeginTable("SnapshotTable", 7, table_flags))
 			{
-				ImGui::TableSetupColumn("Variant", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+				ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+				ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+				ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+				ImGui::TableSetupColumn("Install Directory", ImGuiTableColumnFlags_WidthStretch, 1.0f);
 				ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-				ImGui::TableSetupColumn("Date", ImGuiTableColumnFlags_WidthStretch, 1.2f);
-				ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+				ImGui::TableSetupColumn("Machine", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+				ImGui::TableSetupColumn("User", ImGuiTableColumnFlags_WidthFixed, 1.0f);
 				ImGui::TableSetupScrollFreeze(0, 1);
 				ImGui::TableHeadersRow();
 
@@ -493,17 +560,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 						app.selected_snapshot = entry;
 					}
 
-					// Version
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", "???"); // entry->version.c_str());
-
-					// Date
+					ImGui::Text("%s", entry->instance().description.c_str());
 					ImGui::TableNextColumn();
 					ImGui::Text("%s", entry->instance().timestamp_string().c_str());
-
-					// Size
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", FormatFileSize(1860).c_str());
+					ImGui::Text("%s", entry->installdir().c_str());
+					ImGui::TableNextColumn();
+					ImGui::Text("%s", entry->version().c_str());
+					ImGui::TableNextColumn();
+					ImGui::Text("%s", entry->instance().machine.c_str());
+					ImGui::TableNextColumn();
+					ImGui::Text("%s", entry->instance().user.c_str());
 				}
 
 				ImGui::EndTable();
@@ -768,15 +836,22 @@ static void ProcessWorkerMessages()
 			{
 				// Build trees from discovered entries
 				app.is_refreshing = false;
+				PNQ_RELEASE(app.m_snapshot_registry);
+				app.m_snapshot_registry = m.snapshot_registry;
+				// ownership is transfered!
+
+				auto& instances = app.m_snapshot_registry->m_instance_blueprints;
+				auto& projects = app.m_snapshot_registry->m_project_blueprints;
+
 				app.status_message = std::format("Found {} instance{}, {} project{}",
-					m.instance_blueprints.size(), m.instance_blueprints.size() == 1 ? "" : "s",
-					m.project_blueprints.size(), m.project_blueprints.size() == 1 ? "" : "s");
+					instances.size(), instances.size() == 1 ? "" : "s",
+					projects.size(), projects.size() == 1 ? "" : "s");
 
 				// Check for empty registry on first refresh
 				if (!app.first_refresh_done)
 				{
 					app.first_refresh_done = true;
-					if (m.project_blueprints.empty() && m.project_blueprints.empty())
+					if (instances.empty() && projects.empty())
 					{
 						app.show_first_run_dialog = true;
 					}
@@ -807,14 +882,14 @@ static void ProcessWorkerMessages()
 
 
 				// Notify new registry of operation completion (invalidates installation cache)
-				if (m.success && app.snapshot_registry)
+				if (m.success && app.m_snapshot_registry)
 				{
 					if (app.progress_operation == "Restore")
-						app.snapshot_registry->notify_restore_complete("");
+						app.m_snapshot_registry->notify_restore_complete("");
 					else if (app.progress_operation == "Clean")
-						app.snapshot_registry->notify_clean_complete();
+						app.m_snapshot_registry->notify_clean_complete();
 					else if (app.progress_operation == "Backup" && !m.snapshot_path.empty())
-						app.snapshot_registry->notify_backup_complete(m.snapshot_path);
+						app.m_snapshot_registry->notify_backup_complete(m.snapshot_path);
 				}
 
 				// Refresh registry if backup succeeded (new snapshot may have been created)
@@ -1164,12 +1239,13 @@ static void RenderFirstRunDialog()
 				roots_str += folder;
 				registrySettings.roots.set(roots_str);
 
-				// Update snapshot_registry with new roots
-				app.snapshot_registry = std::make_unique<insti::SnapshotRegistry>(app.registry_roots);
-
 				// Trigger refresh
 				app.is_refreshing = true;
 				app.status_message = "Scanning for snapshots...";
+
+				// on first thought, this is no good, because it'll overwrite an existing SnapshotRegistry.
+				// on second thought, it IS good, because it solves precisely the problem that we shouldn't modify
+				// the vectors of an existing object while it is being processed in a background thread
 				app.worker->post(instinctiv::RefreshRegistry{ app.registry_roots });
 
 				// Close dialog (will reopen if still empty after refresh)

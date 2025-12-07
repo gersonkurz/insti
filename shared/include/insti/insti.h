@@ -76,7 +76,7 @@
 namespace insti
 {
     /// Library version string.
-    constexpr const char* version() { return "0.1.0"; }
+    constexpr const char* version() { return "3.0.0"; }
 }
 
 // Core

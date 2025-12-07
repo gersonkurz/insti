@@ -25,9 +25,6 @@ namespace instinctiv
 		const std::string root_strings = registrySettings.roots;
 		registry_roots = pnq::string::split(root_strings, ";");
 
-		// Create snapshot registry for installed_instance() support
-		snapshot_registry = std::make_unique<insti::SnapshotRegistry>(registry_roots);
-
 		// Create worker thread
 		worker = std::make_unique<WorkerThread>();
 

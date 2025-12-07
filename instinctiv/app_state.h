@@ -41,7 +41,6 @@ namespace instinctiv
 		insti::ProjectBlueprint* selected_snapshot = nullptr;  // Currently selected snapshot
 
 		// UI State - Blueprints
-		int selected_blueprint_index = -1;          // Index in blueprints vector (-1 = none/all)
 		std::string filter_text;                    // Filter input
 		bool filter_dirty = false;                  // Filter needs reapplication
 		std::string status_message;                 // Status bar message
@@ -73,7 +72,7 @@ namespace instinctiv
 		std::vector<std::string> registry_roots;
 
 		// TBD: move to a member instead of a pointer
-		std::unique_ptr<insti::SnapshotRegistry> snapshot_registry;  // New registry with installed_instance() support
+		insti::SnapshotRegistry* m_snapshot_registry{ nullptr };
 
 	private:
 		AppState() = default;

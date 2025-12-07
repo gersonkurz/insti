@@ -178,7 +178,7 @@ InstanceBlueprint* SnapshotRegistry::installed_instance() const
     }
 
     // Discover all instance blueprints
-    auto instances = discover_instance_blueprints();
+    auto instances = m_instance_blueprints;
     if (instances.empty())
     {
         m_cached_installed_path.clear();

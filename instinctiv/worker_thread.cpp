@@ -292,12 +292,10 @@ void WorkerThread::do_refresh_registry(const RefreshRegistry& cmd)
     m_cancel_requested.store(false);
 
     // Discover snapshots and blueprints from configured roots
-    insti::SnapshotRegistry registry{ cmd.roots };
-    registry.initialize();
-    auto project_blueprints = registry.discover_project_blueprints();
-    auto instance_blueprints = registry.discover_instance_blueprints();
+    auto registry{ PNQ_NEW insti::SnapshotRegistry{ cmd.roots } };
+    registry->initialize();
     
-    post_to_ui(RegistryRefreshComplete{true, std::move(project_blueprints), std::move(instance_blueprints)});
+    post_to_ui(RegistryRefreshComplete{true, registry});
     m_busy.store(false);
 }
 

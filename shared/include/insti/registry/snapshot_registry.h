@@ -12,7 +12,7 @@ namespace insti
 {
 
 	/// Registry for discovering and managing snapshots across multiple roots.
-	class SnapshotRegistry final
+	class SnapshotRegistry final : public pnq::RefCountImpl
 	{
 	public:
 		/// @param roots List of registry root directories
@@ -48,27 +48,21 @@ namespace insti
 		/// Notify registry that a clean completed.
 		void notify_clean_complete();
 
-		const auto& discover_instance_blueprints() const
-		{
-			return m_instance_blueprints;
-		}
-
-		const auto& discover_project_blueprints() const
-		{
-			return m_project_blueprints;
-		}
-
-		pnq::RefCountedVector<InstanceBlueprint*> discover_instances(std::string_view filter_text) const
+		pnq::RefCountedVector<InstanceBlueprint*> discover_instances(std::string_view filter_text)
 		{
 			return discover<InstanceBlueprint>(filter_text, m_instance_blueprints);
 		}
-		pnq::RefCountedVector<ProjectBlueprint*> discover_projects(std::string_view filter_text) const
+
+		pnq::RefCountedVector<ProjectBlueprint*> discover_projects(std::string_view filter_text)
 		{
 			return discover<ProjectBlueprint>(filter_text, m_project_blueprints);
 		}
 
+		mutable pnq::RefCountedVector<InstanceBlueprint*> m_instance_blueprints;
+		mutable pnq::RefCountedVector<ProjectBlueprint*> m_project_blueprints;
+
 	private:
-		template <typename T> pnq::RefCountedVector<T*> discover(std::string_view filter_text, const pnq::RefCountedVector<T*>& blueprints) const
+		template <typename T> pnq::RefCountedVector<T*> discover(std::string_view filter_text, const pnq::RefCountedVector<T*>& blueprints)
 		{
 			pnq::RefCountedVector<T*> result;
 			for (auto* bp : blueprints)
@@ -83,8 +77,6 @@ namespace insti
 
 
 		const std::vector<std::string> m_roots;
-		mutable pnq::RefCountedVector<InstanceBlueprint*> m_instance_blueprints;
-		mutable pnq::RefCountedVector<ProjectBlueprint*> m_project_blueprints;
 
 		mutable BlueprintCache m_cache;  ///< Cache for parsed blueprints (mutable for const methods)
 		mutable std::string m_cached_installed_path;  ///< Cached path of installed blueprint.xml (empty if none/unknown)
