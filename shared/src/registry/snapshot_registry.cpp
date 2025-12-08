@@ -12,7 +12,53 @@ namespace insti
 
 	namespace fs = std::filesystem;
 
+	Instance* SnapshotRegistry::find_instance_for_path(std::string_view output_path)
+	{
+		// Search known instance blueprints for matching snapshot path
+		for (auto* bp : m_instances)
+		{
+			if (bp->m_snapshot_path == output_path)
+			{
+				PNQ_ADDREF(bp);
+				return bp;
+			}
+		}
+		return nullptr;
+	}
 
+	void SnapshotRegistry::on_backup_complete(std::string_view project_name, std::string_view output_path)
+	{
+		// we can be much smarter than this, can't we ? 
+		auto instance = find_instance_for_path(output_path);
+		if (instance)
+		{
+			spdlog::warn("This is STRANGE: we created a new backup, based on a timestamp ... and it already exists in our list?!");
+			instance->m_install_status = InstallStatus::Installed;
+			m_cache.update_install_status(output_path, InstallStatus::Installed);
+			PNQ_RELEASE(instance);
+		}
+		else
+		{
+			// if this project is registered as currently installed, mark it as UNINSTALLED. 
+			// Because we just made a backup, so the old one isn't installed any more, the new one is
+
+			for(auto instance: m_instances)
+			{
+				if(instance->m_install_status == InstallStatus::Installed)
+				{
+					if (instance->project_name() == project_name)
+					{
+						instance->m_install_status = InstallStatus::NotInstalled;
+						m_cache.update_install_status(instance->m_snapshot_path, InstallStatus::NotInstalled);
+					}
+				}
+			}
+
+			const fs::path path{ output_path };
+			const fs::directory_entry dir_entry{ path };
+			initialize_instance_blueprint(dir_entry, InstallStatus::Installed);
+		}
+	}
 
 	bool SnapshotRegistry::initialize()
 	{
@@ -49,18 +95,18 @@ namespace insti
 				}
 				else if (ext == ".zip")
 				{
-					initialize_instance_blueprint(dir_entry);
+					initialize_instance_blueprint(dir_entry, InstallStatus::Unknown);
 				}
 			}
 		}
 
 		// Sort by name
-		std::sort(m_instance_blueprints.begin(), m_instance_blueprints.end(), [](const Instance* a, const Instance* b) {
-			return a->name() < b->name();
+		std::sort(m_instances.begin(), m_instances.end(), [](const Instance* a, const Instance* b) {
+			return a->project_name() < b->project_name();
 			});
 
-		std::sort(m_project_blueprints.begin(), m_project_blueprints.end(), [](const Project* a, const Project* b) {
-			return a->name() < b->name();
+		std::sort(m_projects.begin(), m_projects.end(), [](const Project* a, const Project* b) {
+			return a->project_name() < b->project_name();
 			});
 		return true;
 	}
@@ -82,7 +128,7 @@ namespace insti
 			const auto bp = Project::load_from_string(*cached_xml, path_str);
 			if (bp)
 			{
-				m_project_blueprints.push_back(bp);
+				m_projects.push_back(bp);
 				return true;
 			}
 		}
@@ -93,13 +139,13 @@ namespace insti
 		{
 			// Cache the serialized XML
 			m_cache.put(path_str, mtime, size, bp->to_xml(), InstallStatus::Unknown);
-			m_project_blueprints.push_back(bp);
+			m_projects.push_back(bp);
 			return true;
 		}
 		return false;
 	}
 
-	bool SnapshotRegistry::initialize_instance_blueprint(const fs::directory_entry& dir_entry) const
+	bool SnapshotRegistry::initialize_instance_blueprint(const fs::directory_entry& dir_entry, InstallStatus install_status) const
 	{
 		std::error_code ec;
 		std::string path_str = dir_entry.path().string();
@@ -108,7 +154,6 @@ namespace insti
 		int64_t size = static_cast<int64_t>(dir_entry.file_size(ec));
 
 		// Try cache first
-		InstallStatus install_status{ InstallStatus::Unknown };
 		auto cached_xml = m_cache.get(path_str, mtime, size, install_status);
 		if (cached_xml)
 		{
@@ -117,7 +162,7 @@ namespace insti
 			if (bp)
 			{
 				bp->m_install_status = install_status;
-				m_instance_blueprints.push_back(bp);
+				m_instances.push_back(bp);
 				return true;
 			}
 			// Cache was corrupt/invalid, fall through to reload
@@ -127,9 +172,9 @@ namespace insti
 		const auto bp = Instance::load_from_archive(path_str);
 		if (bp)
 		{
-			// Cache the serialized XML
+			bp->m_install_status = install_status;
 			m_cache.put(path_str, mtime, size, bp->to_xml(), bp->m_install_status);
-			m_instance_blueprints.push_back(bp);
+			m_instances.push_back(bp);
 			return true;
 		}
 		return false;
@@ -181,7 +226,7 @@ namespace insti
 		}
 
 		// Discover all instance blueprints
-		auto instances = m_instance_blueprints;
+		auto instances = m_instances;
 		if (instances.empty())
 		{
 			m_cached_installed_path.clear();

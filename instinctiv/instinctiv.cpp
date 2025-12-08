@@ -326,8 +326,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
 		if (app.m_snapshot_registry)
 		{
-			projects = &(app.m_snapshot_registry->m_project_blueprints);
-			instances = &(app.m_snapshot_registry->m_instance_blueprints);
+			projects = &(app.m_snapshot_registry->m_projects);
+			instances = &(app.m_snapshot_registry->m_instances);
 
 			if (projects->size() == 1)
 			{
@@ -335,7 +335,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
 				// must select the one-and-only if not selected already
 				const auto lastBlueprint = instinctiv::config::theSettings.application.lastBlueprint.get();
-				name_of_selected_project = projects->at(0)->name();
+				name_of_selected_project = projects->at(0)->project_name();
 				if (!pnq::string::equals(lastBlueprint, name_of_selected_project))
 				{
 					instinctiv::config::theSettings.application.lastBlueprint.set(name_of_selected_project);
@@ -350,7 +350,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 				int current_index = 0;
 				for (const auto& project : *projects)
 				{
-					const auto nameOfThisProject = project->name();
+					const auto nameOfThisProject = project->project_name();
 					if (pnq::string::equals(lastBlueprint, nameOfThisProject))
 					{
 						selected_blueprint_index = current_index;
@@ -362,7 +362,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 				}
 				if (!found)
 				{
-					name_of_selected_project = projects->at(0)->name();
+					name_of_selected_project = projects->at(0)->project_name();
 					assert(!pnq::string::equals(lastBlueprint, name_of_selected_project));
 					instinctiv::config::theSettings.application.lastBlueprint.set(name_of_selected_project);
 					instinctiv::config::theSettings.save(*g_pConfigBackend);
@@ -380,7 +380,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 			for (int i = 0; i < (int)projects->size(); ++i)
 			{
 				bool is_selected = (selected_blueprint_index == i);
-				if (ImGui::Selectable((*projects)[i]->name().c_str(), is_selected))
+				if (ImGui::Selectable((*projects)[i]->project_name().c_str(), is_selected))
 				{
 					/*if (selected_blueprint_index != i)
 					{
@@ -492,7 +492,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 		std::string blueprint_filter;
 		if (selected_blueprint_index >= 0 && selected_blueprint_index < (int)projects->size())
 		{
-			blueprint_filter = (*projects)[selected_blueprint_index]->name();
+			blueprint_filter = (*projects)[selected_blueprint_index]->project_name();
 			std::replace(blueprint_filter.begin(), blueprint_filter.end(), ' ', '_');
 		}
 
@@ -555,7 +555,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 					// Variant
 					ImGui::TableNextColumn();
 					ImGuiSelectableFlags sel_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap;
-					if (ImGui::Selectable(entry->name().c_str(), is_selected, sel_flags))
+					if (ImGui::Selectable(entry->project_name().c_str(), is_selected, sel_flags))
 					{
 						app.selected_snapshot = entry;
 					}
@@ -567,7 +567,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 					ImGui::TableNextColumn();
 					ImGui::Text("%s", entry->installdir().c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->version().c_str());
+					ImGui::Text("%s", entry->project_version().c_str());
 					ImGui::TableNextColumn();
 					ImGui::Text("%s", entry->m_machine.c_str());
 					ImGui::TableNextColumn();
@@ -840,8 +840,8 @@ static void ProcessWorkerMessages()
 				app.m_snapshot_registry = m.snapshot_registry;
 				// ownership is transfered!
 
-				auto& instances = app.m_snapshot_registry->m_instance_blueprints;
-				auto& projects = app.m_snapshot_registry->m_project_blueprints;
+				auto& instances = app.m_snapshot_registry->m_instances;
+				auto& projects = app.m_snapshot_registry->m_projects;
 
 				app.status_message = std::format("Found {} instance{}, {} project{}",
 					instances.size(), instances.size() == 1 ? "" : "s",
@@ -967,7 +967,7 @@ static void StartBackupFromBlueprint(insti::Project* blueprint)
 
 	spdlog::info("StartBackupFromBlueprint: {}", blueprint->source_path());
 
-	spdlog::info("Blueprint loaded: {} v{}", blueprint->name(), blueprint->version());
+	spdlog::info("Blueprint loaded: {} v{}", blueprint->project_name(), blueprint->project_version());
 
 	// TBD: we should really show a dialog here instead of doing auto-start
 
@@ -1012,7 +1012,7 @@ static void StartBackupFromBlueprint(insti::Project* blueprint)
 	std::strftime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M%S", &tm_now);
 
 	// Use blueprint name as project, "default" as variant, blueprint version as version
-	std::string project = blueprint->name();
+	std::string project = blueprint->project_name();
 
 	// Sanitize names (replace spaces with underscores)
 	std::replace(project.begin(), project.end(), ' ', '_');
@@ -1034,7 +1034,7 @@ static void StartBackupFromBlueprint(insti::Project* blueprint)
 	app.progress_detail.clear();
 	app.progress_percent = -1;
 	app.progress_log.clear();
-	app.progress_log.push_back("Starting backup: " + blueprint->name());
+	app.progress_log.push_back("Starting backup: " + blueprint->project_name());
 	app.progress_log.push_back("Output: " + output_path.string());
 
 	// Start backup on worker thread

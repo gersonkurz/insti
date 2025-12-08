@@ -15,6 +15,7 @@ namespace insti
 
 	class Blueprint;
 	class Instance;
+	class Project;
 	class SnapshotRegistry;
 
 	/// Coordinates backup/restore/clean operations with hooks.
@@ -31,7 +32,7 @@ namespace insti
 		/// @param output_path Output snapshot file path
 		/// @param cb Callback for progress/errors (may be nullptr for silent operation)
 		/// @return true on success
-		bool backup(const Blueprint* bp, std::string_view output_path, IActionCallback* cb);
+		bool backup(const Project* bp, std::string_view output_path, IActionCallback* cb);
 
 		/// Restore from snapshot.
 		/// @param archive_path Path to snapshot file

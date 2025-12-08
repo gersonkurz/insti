@@ -52,14 +52,14 @@ int cmd_info(const std::string& blueprint_path)
     }
 
     con::write(C_BOLD "Blueprint: " C_RESET);
-    con::write(bp->name());
+    con::write(bp->project_name());
     con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->version());
+    con::write_line(bp->project_version());
 
-    if (!bp->description().empty())
+    if (!bp->project_description().empty())
     {
         con::write(C_DIM "Description: " C_RESET);
-        con::write_line(bp->description());
+        con::write_line(bp->project_description());
     }
 
     con::write_line("");
@@ -137,10 +137,10 @@ int cmd_backup(const std::string& blueprint_path, const std::string& output_arg)
         }
 
         std::string filename = registry.generate_filename(
-            bp->name(), std::chrono::system_clock::now());
+            bp->project_name(), std::chrono::system_clock::now());
 
         // Create subdirectory: root/project/version/
-        std::filesystem::path dir = std::filesystem::path(root) / bp->name() / bp->version();
+        std::filesystem::path dir = std::filesystem::path(root) / bp->project_name() / bp->project_version();
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
 
@@ -149,9 +149,9 @@ int cmd_backup(const std::string& blueprint_path, const std::string& output_arg)
     }
 
     con::write(C_BOLD "Backing up: " C_RESET);
-    con::write(bp->name());
+    con::write(bp->project_name());
     con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->version());
+    con::write_line(bp->project_version());
 
     insti::ZipSnapshotWriter writer;
     if (!writer.create(output_path))
@@ -305,9 +305,9 @@ int cmd_restore(const std::string& snapshot_ref, const std::string& dest_overrid
     }
 
     con::write(C_BOLD "Restoring: " C_RESET);
-    con::write(bp->name());
+    con::write(bp->project_name());
     con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->version());
+    con::write_line(bp->project_version());
 
     for (const auto* action : bp->actions())
     {
@@ -423,9 +423,9 @@ int cmd_clean(const std::string& source_path)
     }
 
     con::write(C_BOLD "Cleaning: " C_RESET);
-    con::write(bp->name());
+    con::write(bp->project_name());
     con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->version());
+    con::write_line(bp->project_version());
 
     // Clean resources in reverse order
     const auto& actions = bp->actions();
@@ -534,7 +534,7 @@ int cmd_list_registry(const std::string& filter_project)
     {
         con::write("  ");
         con::write(C_CYAN);
-        con::write(entry->name());
+        con::write(entry->project_name());
         con::write(C_RESET);
         con::write(C_DIM " [");
         con::write(entry->timestamp_string());
@@ -696,9 +696,9 @@ int cmd_verify(const std::string& source_path)
     }
 
     con::write(C_BOLD "Verifying: " C_RESET);
-    con::write(bp->name());
+    con::write(bp->project_name());
     con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->version());
+    con::write_line(bp->project_version());
     con::write_line("");
 
     // Create context for verify (uses clean context - no reader/writer needed)

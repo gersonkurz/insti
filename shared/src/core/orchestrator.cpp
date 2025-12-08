@@ -77,7 +77,7 @@ namespace insti
 			PNQ_RELEASE(m_snapshot_registry);
 		}
 
-		bool Orchestrator::backup(const Blueprint* bp, std::string_view output_path, IActionCallback* cb)
+		bool Orchestrator::backup(const Project* bp, std::string_view output_path, IActionCallback* cb)
 		{
 			if (!bp)
 			{
@@ -171,7 +171,7 @@ namespace insti
 				return false;
 			}
 
-
+			m_snapshot_registry->on_backup_complete(bp->project_name(), output_path);
 
 			spdlog::info("backup: completed successfully");
 			if (cb)

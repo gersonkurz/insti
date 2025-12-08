@@ -67,13 +67,13 @@ namespace insti
         /// @{
 
         /// Get project name from resolved variables.
-        const std::string &name() const { return get_var(VAR_PROJECT_NAME); }
+        const std::string &project_name() const { return get_var(VAR_PROJECT_NAME); }
 
         /// Get project version from resolved variables.
-        const std::string &version() const { return get_var(VAR_PROJECT_VERSION); }
+        const std::string &project_version() const { return get_var(VAR_PROJECT_VERSION); }
 
         /// Get project description from resolved variables.
-        const std::string &description() const { return get_var(VAR_PROJECT_DESCRIPTION); }
+        const std::string &project_description() const { return get_var(VAR_PROJECT_DESCRIPTION); }
 
         /// Get installation directory (resolved).
         /// This is the primary installation location where the instance blueprint will be written.

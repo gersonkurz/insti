@@ -31,9 +31,9 @@ public:
     bool matches(std::string_view filter_text) const
     {
         std::string lower_filter = pnq::string::lowercase(filter_text);
-        return pnq::string::contains(pnq::string::lowercase(name()), lower_filter) ||
+        return pnq::string::contains(pnq::string::lowercase(project_name()), lower_filter) ||
                pnq::string::contains(pnq::string::lowercase(m_source_path), lower_filter) ||
-               pnq::string::contains(pnq::string::lowercase(description()), lower_filter);
+               pnq::string::contains(pnq::string::lowercase(project_description()), lower_filter);
     }
 
     /// Get the source file path.

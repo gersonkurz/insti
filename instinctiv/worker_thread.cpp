@@ -182,7 +182,7 @@ void WorkerThread::do_backup(const StartBackup& cmd)
 
     WorkerCallback callback{ this };
     insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
-    bool success = orc.backup(cmd.m_blueprint.get(), cmd.m_output_path, &callback);
+    bool success = orc.backup(cmd.m_project.get(), cmd.m_output_path, &callback);
 
     // Extract project name from filename (matches how discover() parses it)
     std::string project;
@@ -276,7 +276,7 @@ void WorkerThread::do_clean(const StartClean& cmd)
 
     // Pass project name so UI can update installation registry
     // Empty snapshot_path signals this is a clean (not backup/restore)
-    post_to_ui(OperationComplete{success, msg, cmd.m_blueprint.get()->name()});
+    post_to_ui(OperationComplete{success, msg, cmd.m_blueprint.get()->project_name()});
     m_busy.store(false);
 }
 

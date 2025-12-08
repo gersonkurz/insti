@@ -550,16 +550,16 @@ std::string Blueprint::to_xml() const
     decl.append_attribute("encoding") = "UTF-8";
 
     auto root = doc.append_child("blueprint");
-    root.append_attribute("name") = name().c_str();
-    root.append_attribute("version") = version().c_str();
+    root.append_attribute("name") = project_name().c_str();
+    root.append_attribute("version") = project_version().c_str();
 
     // Write installdir if set (from user_variables, not resolved)
     auto installdir_it = m_user_variables.find(VAR_INSTALLDIR.data());
     if (installdir_it != m_user_variables.end() && !installdir_it->second.empty())
         root.append_attribute("installdir") = installdir_it->second.c_str();
 
-    if (!description().empty())
-        root.append_child("description").text().set(description().c_str());
+    if (!project_description().empty())
+        root.append_child("description").text().set(project_description().c_str());
 
     // Write user variables (excluding INSTALLDIR which is written as attribute)
     bool has_other_vars = false;

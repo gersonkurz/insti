@@ -46,18 +46,24 @@ namespace insti
 
 		pnq::RefCountedVector<Instance*> discover_instances(std::string_view filter_text)
 		{
-			return discover<Instance>(filter_text, m_instance_blueprints);
+			return discover<Instance>(filter_text, m_instances);
 		}
 
 		pnq::RefCountedVector<Project*> discover_projects(std::string_view filter_text)
 		{
-			return discover<Project>(filter_text, m_project_blueprints);
+			return discover<Project>(filter_text, m_projects);
 		}
 
-		mutable pnq::RefCountedVector<Instance*> m_instance_blueprints;
-		mutable pnq::RefCountedVector<Project*> m_project_blueprints;
+		mutable pnq::RefCountedVector<Instance*> m_instances;
+		mutable pnq::RefCountedVector<Project*> m_projects;
 
 	private:
+		friend class Orchestrator;
+
+		void on_backup_complete(std::string_view project_name, std::string_view output_path);
+
+		Instance* find_instance_for_path(std::string_view output_path);
+
 		template <typename T> pnq::RefCountedVector<T*> discover(std::string_view filter_text, const pnq::RefCountedVector<T*>& blueprints)
 		{
 			pnq::RefCountedVector<T*> result;
@@ -86,7 +92,7 @@ namespace insti
 
 
 		bool initialize_project_blueprint(const fs::directory_entry& dir_entry) const;
-		bool initialize_instance_blueprint(const fs::directory_entry& dir_entry) const;
+		bool initialize_instance_blueprint(const fs::directory_entry& dir_entry, InstallStatus install_status) const;
 	};
 
 } // namespace insti
