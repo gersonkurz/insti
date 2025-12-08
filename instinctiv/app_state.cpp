@@ -7,18 +7,12 @@
 namespace instinctiv
 {
 
-	AppState& AppState::instance()
-	{
-		static AppState state;
-		return state;
-	}
-
 	AppState::~AppState()
 	{
 		clear_entries();
 	}
 
-	void AppState::initialize()
+	bool AppState::initialize()
 	{
 		// Load registry roots from settings
 		auto& registrySettings = config::theSettings.registry;
@@ -32,6 +26,7 @@ namespace instinctiv
 		is_refreshing = true;
 		status_message = "Scanning for snapshots...";
 		worker->post(RefreshRegistry{ registry_roots });
+		return true;
 	}
 
 	void AppState::shutdown()

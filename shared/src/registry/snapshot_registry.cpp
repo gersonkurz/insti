@@ -32,7 +32,7 @@ namespace insti
 		auto instance = find_instance_for_path(output_path);
 		if (instance)
 		{
-			spdlog::warn("This is STRANGE: we created a new backup, based on a timestamp ... and it already exists in our list?!");
+			spdlog::warn("This is STRANGE: we created a new backup {}, based on a timestamp ... and it already exists in our list?!", output_path);
 			instance->m_install_status = InstallStatus::Installed;
 			m_cache.update_install_status(output_path, InstallStatus::Installed);
 			PNQ_RELEASE(instance);
@@ -57,6 +57,56 @@ namespace insti
 			const fs::path path{ output_path };
 			const fs::directory_entry dir_entry{ path };
 			initialize_instance_blueprint(dir_entry, InstallStatus::Installed);
+		}
+	}
+
+	void SnapshotRegistry::on_restore_complete(std::string_view project_name, std::string_view output_path)
+	{
+		// since it's a restore, it *should* already exist for us. 
+		auto restored_instance = find_instance_for_path(output_path);
+		if (restored_instance)
+		{
+			// mark all other instances of the same project as uninstalled; only ours should be marked as installed
+			for (auto instance : m_instances)
+			{
+				if(instance == restored_instance)
+				{
+					if (instance->m_install_status != InstallStatus::Installed)
+					{
+						instance->m_install_status = InstallStatus::Installed;
+						m_cache.update_install_status(instance->m_snapshot_path, InstallStatus::NotInstalled);
+					}
+				}
+				else if (instance->m_install_status == InstallStatus::Installed)
+				{
+					if (instance->project_name() == project_name)
+					{
+						instance->m_install_status = InstallStatus::NotInstalled;
+						m_cache.update_install_status(instance->m_snapshot_path, InstallStatus::NotInstalled);
+					}
+				}
+			}
+			PNQ_RELEASE(restored_instance);
+		}
+		else
+		{
+			spdlog::warn("This is STRANGE: we restored existing backup {}, but it does not exist in our list?!", output_path);
+		}
+	}
+
+	void SnapshotRegistry::on_clean_complete(std::string_view project_name)
+	{
+		// mark all other instances of the same project as uninstalled; only ours should be marked as installed
+		for (auto instance : m_instances)
+		{
+			if (instance->m_install_status == InstallStatus::Installed)
+			{
+				if (instance->project_name() == project_name)
+				{
+					instance->m_install_status = InstallStatus::NotInstalled;
+					m_cache.update_install_status(instance->m_snapshot_path, InstallStatus::NotInstalled);
+				}
+			}
 		}
 	}
 

@@ -22,10 +22,8 @@ namespace instinctiv
 	class AppState
 	{
 	public:
-		static AppState& instance();
-
 		/// Initialize the application state.
-		void initialize();
+		bool initialize();
 
 		/// Shutdown and cleanup.
 		void shutdown();
@@ -67,10 +65,10 @@ namespace instinctiv
 		// TBD: move to a member instead of a pointer
 		insti::SnapshotRegistry* m_snapshot_registry{ nullptr };
 
-	private:
 		AppState() = default;
 		~AppState();
 
+	private:
 		void clear_entries();
 	};
 

@@ -212,38 +212,21 @@ void WorkerThread::do_restore(const StartRestore& cmd)
 
     WorkerCallback callback(this);
 
-    // Open archive and load blueprint
-    insti::ZipSnapshotReader reader;
-    if (!reader.open(cmd.m_archive_path))
+    auto* instance = insti::Instance::load_from_archive(cmd.m_archive_path);
+    if (!instance)
     {
         post_to_ui(OperationComplete{false, "Failed to open snapshot", ""});
         m_busy.store(false);
         return;
     }
 
-    std::string blueprint_xml = reader.read_text("blueprint.xml");
-    if (blueprint_xml.empty())
-    {
-        post_to_ui(OperationComplete{ false, "No blueprint.xml in snapshot", "" });
-        m_busy.store(false);
-        return;
-    }
-
-    auto* bp = insti::Blueprint::load_from_string(blueprint_xml);
-    if (!bp)
-    {
-        post_to_ui(OperationComplete{false, "Failed to parse blueprint", ""});
-        m_busy.store(false);
-        return;
-    }
-
     // Apply variable overrides
     for (const auto& [name, value] : cmd.m_variable_overrides)
-        bp->set_override(name, value);
+        instance->set_override(name, value);
     
     insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
-    bool success = orc.restore(bp, cmd.m_archive_path, &callback);
-    bp->release(REFCOUNT_DEBUG_ARGS);
+    bool success = orc.restore(instance, cmd.m_archive_path, &callback);
+    PNQ_RELEASE(instance);
 
     // Extract project name from filename (matches how discover() parses it)
     std::string project;

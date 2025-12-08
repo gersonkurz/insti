@@ -245,6 +245,7 @@
     <ClInclude Include="..\third_party\imgui\imstb_textedit.h" />
     <ClInclude Include="..\third_party\imgui\imstb_truetype.h" />
     <ClInclude Include="app_state.h" />
+    <ClInclude Include="instinctiv.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="settings.h" />

@@ -180,41 +180,7 @@ namespace insti
 			return true;
 		}
 
-		bool Orchestrator::restore(std::string_view archive_path, IActionCallback* cb, bool simulate)
-		{
-			// Open archive
-			ZipSnapshotReader reader;
-			std::string archive_path_str{ archive_path };
-			if (!reader.open(archive_path_str))
-			{
-				if (cb)
-					cb->on_error("Failed to open snapshot", archive_path);
-				return false;
-			}
-
-			// Read blueprint from archive
-			std::string blueprint_xml = reader.read_text("blueprint.xml");
-			if (blueprint_xml.empty())
-			{
-				if (cb)
-					cb->on_error("No blueprint.xml in snapshot", archive_path);
-				return false;
-			}
-
-			auto* bp = Blueprint::load_from_string(blueprint_xml);
-			if (!bp)
-			{
-				if (cb)
-					cb->on_error("Failed to parse blueprint", archive_path);
-				return false;
-			}
-
-			bool result = restore(bp, archive_path, cb, simulate);
-			bp->release(REFCOUNT_DEBUG_ARGS);
-			return result;
-		}
-
-		bool Orchestrator::restore(const Blueprint* bp, std::string_view archive_path, IActionCallback* cb, bool simulate)
+		bool Orchestrator::restore(const Instance* bp, std::string_view archive_path, IActionCallback* cb, bool simulate)
 		{
 			if (!bp)
 				return false;
@@ -278,6 +244,10 @@ namespace insti
 			if (!simulate && !run_hooks(bp, Phase::PostRestore, cb, skip_all))
 				return false;
 
+			if (!simulate && success)
+			{
+				m_snapshot_registry->on_restore_complete(bp->project_name(), archive_path);
+			}
 			if (cb)
 				cb->on_progress("Restore", "Complete", 100);
 
@@ -318,8 +288,13 @@ namespace insti
 
 			// Run PostClean hooks (even if clean had failures, skip in simulate mode)
 			if (!simulate)
+			{
 				run_hooks(bp, Phase::PostClean, cb, skip_all);
-
+				if (success)
+				{
+					m_snapshot_registry->on_clean_complete(bp->project_name());
+				}
+			}
 			return success;
 		}
 

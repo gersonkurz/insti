@@ -61,6 +61,8 @@ namespace insti
 		friend class Orchestrator;
 
 		void on_backup_complete(std::string_view project_name, std::string_view output_path);
+		void on_restore_complete(std::string_view project_name, std::string_view output_path);
+		void on_clean_complete(std::string_view project_name);
 
 		Instance* find_instance_for_path(std::string_view output_path);
 

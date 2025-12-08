@@ -34,20 +34,13 @@ namespace insti
 		/// @return true on success
 		bool backup(const Project* bp, std::string_view output_path, IActionCallback* cb);
 
-		/// Restore from snapshot.
-		/// @param archive_path Path to snapshot file
-		/// @param cb Callback for progress/errors (may be nullptr for silent operation)
-		/// @param simulate If true, log actions without performing them
-		/// @return true on success
-		bool restore(std::string_view archive_path, IActionCallback* cb, bool simulate = false);
-
 		/// Restore from snapshot with pre-loaded blueprint (allows variable overrides via context).
 		/// @param bp Blueprint (must not be nullptr)
 		/// @param archive_path Path to snapshot file
 		/// @param cb Callback for progress/errors (may be nullptr for silent operation)
 		/// @param simulate If true, log actions without performing them
 		/// @return true on success
-		bool restore(const Blueprint* bp, std::string_view archive_path, IActionCallback* cb, bool simulate = false);
+		bool restore(const Instance* bp, std::string_view archive_path, IActionCallback* cb, bool simulate = false);
 
 		/// Clean resources defined in blueprint.
 		/// @param bp Blueprint (must not be nullptr)
