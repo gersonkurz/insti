@@ -10,6 +10,20 @@ Blueprint::~Blueprint()
     // RefCountedVector handles releasing actions and hooks
 }
 
+std::vector<IHook*> Blueprint::standalone_hooks() const
+{
+    std::vector<IHook*> result;
+    for (const auto& phase_hooks : m_hooks)
+    {
+        for (auto* hook : phase_hooks)
+        {
+            if (hook->is_standalone())
+                result.push_back(hook);
+        }
+    }
+    return result;
+}
+
 void Blueprint::populate_builtins()
 {
     m_builtin_variables["PROGRAMFILES"] = pnq::path::get_known_folder(FOLDERID_ProgramFiles).string();
@@ -464,6 +478,12 @@ bool Blueprint::parse_xml(std::string_view xml)
                 return false;
             }
 
+            // Parse common optional attributes (name, standalone)
+            std::string hook_name = node.attribute("name").as_string();
+            bool standalone = node.attribute("standalone").as_bool(false);
+
+            IHook* hook = nullptr;
+
             if (node_name == "kill")
             {
                 std::string process = node.attribute("process").as_string();
@@ -474,8 +494,11 @@ bool Blueprint::parse_xml(std::string_view xml)
                 }
 
                 uint32_t timeout = node.attribute("timeout").as_uint(5000);
-                m_hooks[static_cast<size_t>(phase)].push_back(
-                    new KillProcessHook(std::move(process), timeout));
+                hook = new KillProcessHook(std::move(process), timeout);
+
+                // Default name from process name if not specified
+                if (hook_name.empty() && standalone)
+                    hook_name = std::filesystem::path(process).stem().string();
             }
             else if (node_name == "run")
             {
@@ -496,8 +519,11 @@ bool Blueprint::parse_xml(std::string_view xml)
                     args.push_back(arg.text().as_string());
                 }
 
-                m_hooks[static_cast<size_t>(phase)].push_back(
-                    new RunProcessHook(std::move(path), std::move(args), wait, ignore_exit));
+                hook = new RunProcessHook(std::move(path), std::move(args), wait, ignore_exit);
+
+                // Default name from executable name if not specified
+                if (hook_name.empty() && standalone)
+                    hook_name = std::filesystem::path(path).stem().string();
             }
             else if (node_name == "substitute")
             {
@@ -508,9 +534,9 @@ bool Blueprint::parse_xml(std::string_view xml)
                     return false;
                 }
 
-                auto* hook = new SubstituteHook(std::move(file));
-                hook->set_phase(phase);
-                m_hooks[static_cast<size_t>(phase)].push_back(hook);
+                auto* sub_hook = new SubstituteHook(std::move(file));
+                sub_hook->set_phase(phase);
+                hook = sub_hook;
             }
             else if (node_name == "sql")
             {
@@ -527,13 +553,22 @@ bool Blueprint::parse_xml(std::string_view xml)
                     return false;
                 }
 
-                auto* hook = new SqlHook(std::move(file), std::move(query));
-                hook->set_phase(phase);
-                m_hooks[static_cast<size_t>(phase)].push_back(hook);
+                auto* sql_hook = new SqlHook(std::move(file), std::move(query));
+                sql_hook->set_phase(phase);
+                hook = sql_hook;
             }
             else
             {
                 spdlog::warn("Unknown hook type: {}", node_name);
+            }
+
+            // Set common attributes and add to phase hooks
+            if (hook)
+            {
+                if (!hook_name.empty())
+                    hook->set_name(std::move(hook_name));
+                hook->set_standalone(standalone);
+                m_hooks[static_cast<size_t>(phase)].push_back(hook);
             }
         }
     }
@@ -618,9 +653,11 @@ std::string Blueprint::to_xml() const
             Phase phase = static_cast<Phase>(i);
             for (const auto* hook : m_hooks[i])
             {
+                pugi::xml_node node;
+
                 if (auto* kill = dynamic_cast<const KillProcessHook*>(hook))
                 {
-                    auto node = hooks_node.append_child("kill");
+                    node = hooks_node.append_child("kill");
                     node.append_attribute("phase") = phase_to_string(phase);
                     node.append_attribute("process") = kill->process_name().c_str();
                     if (kill->timeout_ms() != 5000)
@@ -628,7 +665,7 @@ std::string Blueprint::to_xml() const
                 }
                 else if (auto* run = dynamic_cast<const RunProcessHook*>(hook))
                 {
-                    auto node = hooks_node.append_child("run");
+                    node = hooks_node.append_child("run");
                     node.append_attribute("phase") = phase_to_string(phase);
                     node.append_attribute("path") = run->path().c_str();
                     if (!run->wait())
@@ -643,17 +680,23 @@ std::string Blueprint::to_xml() const
                 }
                 else if (auto* sub = dynamic_cast<const SubstituteHook*>(hook))
                 {
-                    auto node = hooks_node.append_child("substitute");
+                    node = hooks_node.append_child("substitute");
                     node.append_attribute("phase") = phase_to_string(phase);
                     node.append_attribute("file") = sub->file_pattern().c_str();
                 }
                 else if (auto* sql = dynamic_cast<const SqlHook*>(hook))
                 {
-                    auto node = hooks_node.append_child("sql");
+                    node = hooks_node.append_child("sql");
                     node.append_attribute("phase") = phase_to_string(phase);
                     node.append_attribute("file") = sql->file_path().c_str();
                     node.append_attribute("query") = sql->query().c_str();
                 }
+
+                // Write common optional attributes
+                if (node && !hook->name().empty())
+                    node.append_attribute("name") = hook->name().c_str();
+                if (node && hook->is_standalone())
+                    node.append_attribute("standalone") = true;
             }
         }
     }

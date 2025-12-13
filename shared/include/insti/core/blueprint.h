@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 #include <pnq/pnq.h>
 #include <pnq/ref_counted.h>
 #include <insti/core/phase.h>
@@ -94,6 +95,11 @@ namespace insti
         /// @param phase The execution phase
         /// @return Reference to hook vector for that phase (valid while blueprint alive)
         const pnq::RefCountedVector<IHook *> &hooks(Phase phase) const { return m_hooks[static_cast<size_t>(phase)]; }
+
+        /// Get all standalone hooks (hooks that can be triggered manually from UI).
+        /// Iterates all phases and returns hooks where is_standalone() is true.
+        /// @return Vector of standalone hook pointers (not ref-counted, valid while blueprint alive)
+        std::vector<IHook *> standalone_hooks() const;
 
         /// @}
 

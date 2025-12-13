@@ -56,119 +56,6 @@ void set_permissive_registry_sddl(const std::string& key_path)
     LocalFree(pSD);
 }
 
-/// Recursively delete a registry key, continuing on errors.
-/// @param path Full registry path to delete
-/// @param cb Callback for error reporting (may be null)
-/// @param ctx ActionContext for skip_all state
-/// @return true if key was fully deleted, false if any part remains
-bool delete_key_resilient(const std::string& path, IActionCallback* cb, ActionContext* ctx)
-{
-    pnq::regis3::key key{path};
-
-    // Try to open for writing first
-    if (!key.open_for_writing())
-    {
-        // Can't open - might not exist (success) or access denied (failure)
-        // Try opening for read to check if it exists
-        pnq::regis3::key test_key{path};
-        if (!test_key.open_for_reading())
-        {
-            // Key doesn't exist - success
-            return true;
-        }
-
-        // Key exists but can't open for writing - access denied
-        if (cb && !ctx->skip_all_errors())
-        {
-            auto decision = cb->on_error("Access denied opening registry key for deletion", path.c_str());
-            if (decision == IActionCallback::Decision::Abort)
-                return false;
-            if (decision == IActionCallback::Decision::SkipAll)
-                ctx->set_skip_all_errors(true);
-        }
-        return false;
-    }
-
-    bool all_deleted = true;
-
-    // First, recursively delete all subkeys
-    // Collect names first since we can't modify while enumerating
-    std::vector<std::string> subkey_names;
-    for (const auto& subkey_path : key.enum_keys())
-    {
-        // enum_keys returns full paths, extract just the name
-        auto pos = subkey_path.rfind('\\');
-        if (pos != std::string::npos)
-            subkey_names.push_back(subkey_path.substr(pos + 1));
-        else
-            subkey_names.push_back(subkey_path);
-    }
-
-    for (const auto& name : subkey_names)
-    {
-        std::string subkey_path = path + "\\" + name;
-        if (!delete_key_resilient(subkey_path, cb, ctx))
-        {
-            all_deleted = false;
-            // Continue trying other subkeys
-        }
-    }
-
-    // Delete all values in this key
-    std::vector<std::string> value_names;
-    for (const auto& val : key.enum_values())
-    {
-        value_names.push_back(std::string{val.name()});
-    }
-
-    for (const auto& name : value_names)
-    {
-        if (!key.delete_value(name))
-        {
-            if (cb && !ctx->skip_all_errors())
-            {
-                std::string context = path + "\\" + name;
-                auto decision = cb->on_error("Failed to delete registry value", context.c_str());
-                if (decision == IActionCallback::Decision::Abort)
-                    return false;
-                if (decision == IActionCallback::Decision::SkipAll)
-                    ctx->set_skip_all_errors(true);
-            }
-            all_deleted = false;
-        }
-    }
-
-    // Close the key before trying to delete it from parent
-    key.close();
-
-    // Now try to delete the key itself (from parent)
-    if (all_deleted)
-    {
-        // Only try if we successfully deleted all children
-        if (!pnq::regis3::key::delete_recursive(path))
-        {
-            // This might fail even after deleting contents if there are permission issues
-            // Check if key still exists
-            pnq::regis3::key check{path};
-            if (check.open_for_reading())
-            {
-                if (cb && !ctx->skip_all_errors())
-                {
-                    auto decision = cb->on_error("Failed to delete registry key", path.c_str());
-                    if (decision == IActionCallback::Decision::Abort)
-                        return false;
-                    if (decision == IActionCallback::Decision::SkipAll)
-                        ctx->set_skip_all_errors(true);
-                }
-                return false;
-            }
-        }
-        return true;
-    }
-
-    return false;
-}
-
 } // anonymous namespace
 
     bool RegistryAction::backup(ActionContext *ctx) const
@@ -335,8 +222,35 @@ bool delete_key_resilient(const std::string& path, IActionCallback* cb, ActionCo
             return true;
         }
 
-        // Delete the key recursively, continuing on errors
-        return delete_key_resilient(resolved_key, cb, ctx);
+        // Take ownership recursively before deletion
+        spdlog::debug("Taking ownership of registry key: {}", resolved_key);
+        if (!pnq::regis3::key::take_ownership_recursive(resolved_key))
+        {
+            spdlog::warn("Failed to take ownership of registry key: {}", resolved_key);
+            // Continue anyway - delete might still work
+        }
+
+        // Delete the key recursively
+        spdlog::debug("Deleting registry key: {}", resolved_key);
+        if (!pnq::regis3::key::delete_recursive(resolved_key))
+        {
+            // Check if key still exists
+            pnq::regis3::key check{resolved_key};
+            if (check.open_for_reading())
+            {
+                if (cb && !ctx->skip_all_errors())
+                {
+                    auto decision = cb->on_error("Failed to delete registry key", resolved_key.c_str());
+                    if (decision == IActionCallback::Decision::Abort)
+                        return false;
+                    if (decision == IActionCallback::Decision::SkipAll)
+                        ctx->set_skip_all_errors(true);
+                }
+                return false;
+            }
+        }
+
+        return true;
     }
 
     VerifyResult RegistryAction::verify(ActionContext *ctx) const

@@ -217,107 +217,15 @@ namespace instinctiv
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
-		// Keyboard shortcuts
-		if (!ImGui::GetIO().WantTextInput)
-		{
-			// Ctrl+R - Refresh
-			if (ImGui::IsKeyPressed(ImGuiKey_R) && ImGui::GetIO().KeyCtrl && !m_state.is_refreshing)
-			{
-				m_state.is_refreshing = true;
-				m_state.status_message = "Scanning for snapshots...";
-				m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
-			}
-
-			// Escape - Close dialogs
-			if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-			{
-				if (m_state.show_progress_dialog && !m_state.worker->is_busy())
-					m_state.show_progress_dialog = false;
-				else if (m_state.show_first_run_dialog)
-					m_state.show_first_run_dialog = false;
-			}
-
-			// F5 - Refresh (alternative)
-			if (ImGui::IsKeyPressed(ImGuiKey_F5) && !m_state.is_refreshing)
-			{
-				m_state.is_refreshing = true;
-				m_state.status_message = "Scanning for snapshots...";
-				m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
-			}
-		}
-
-		// Process dropped file
-		if (!g_droppedFile.empty())
-		{
-			std::filesystem::path dropped{ g_droppedFile };
-			std::string ext = dropped.extension().string();
-
-			if (pnq::string::equals_nocase(ext, ".zip"))
-			{
-				/*
-				// Find matching snapshot entry and select it
-				for (auto* entry : m_state.owned_snapshots)
-				{
-					if (entry->path == g_droppedFile)
-					{
-						m_state.selected_snapshot = entry;
-						m_state.status_message = "Selected: " + dropped.filename().string();
-						break;
-					}
-				}
-				// If not found in registry, show message
-				if (m_state.selected_snapshot == nullptr || m_state.selected_snapshot->path != g_droppedFile)
-				{
-					m_state.status_message = "Snapshot not in registry: " + dropped.filename().string();
-				}
-				*/
-			}
-			else if (pnq::string::equals_nocase(ext, ".xml"))
-			{
-				m_state.status_message = "Dropped blueprint: " + dropped.filename().string();
-			}
-			else
-			{
-				m_state.status_message = "Unsupported file type: " + ext;
-			}
-
-			g_droppedFile.clear();
-		}
-
-		// Menu bar
-		if (ImGui::BeginMainMenuBar())
-		{
-			if (ImGui::BeginMenu("File"))
-			{
-				if (ImGui::MenuItem("Exit", "Alt+F4"))
-					m_done = true;
-				ImGui::EndMenu();
-			}
-			if (ImGui::BeginMenu("View"))
-			{
-				if (ImGui::MenuItem("Refresh", "Ctrl+R", false, !m_state.is_refreshing))
-				{
-					m_state.is_refreshing = true;
-					m_state.status_message = "Scanning for snapshots...";
-					m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
-				}
-				ImGui::EndMenu();
-			}
-			if (ImGui::BeginMenu("Tools"))
-			{
-				ImGui::MenuItem("Settings...");
-				ImGui::EndMenu();
-			}
-			if (ImGui::BeginMenu("Help"))
-			{
-				ImGui::MenuItem("About...");
-				ImGui::EndMenu();
-			}
-			ImGui::EndMainMenuBar();
-		}
+		// Input handling
+		handle_keyboard_shortcuts();
+		handle_dropped_file();
 
 		// Process worker thread messages
 		process_worker_messages();
+
+		// UI rendering
+		render_menu_bar();
 
 		// Main window content
 		ImGuiIO& io = ImGui::GetIO();
@@ -330,89 +238,173 @@ namespace instinctiv
 			ImGuiWindowFlags_NoCollapse |
 			ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-		ImGui::Text("insti %s", insti::version());
+		render_toolbar();
 		ImGui::Separator();
+		render_snapshot_table();
 
-		// Blueprint selector combobox
-		ImGui::SetNextItemWidth(200.0f);
+		ImGui::End();
 
-		pnq::RefCountedVector<insti::Instance*> no_instances;
-		pnq::RefCountedVector<insti::Project*> no_projects;
-		pnq::RefCountedVector<insti::Instance*>* instances{ &no_instances };
-		pnq::RefCountedVector<insti::Project*>* projects{ &no_projects };
+		// Modal dialogs
+		render_progress_dialog();
+		render_first_run_dialog();
 
-		// helper: index of current selection in combobox. it's a bit tricky, I know
-		int selected_project_index = -1;
-		std::string name_of_selected_project{ "" };
+		// Rendering
+		ImGui::Render();
+		const float clear_color[4] = { 0.1f, 0.1f, 0.1f, 1.0f };
+		m_pd3dDeviceContext->OMSetRenderTargets(1, &m_mainRenderTargetView, nullptr);
+		m_pd3dDeviceContext->ClearRenderTargetView(m_mainRenderTargetView, clear_color);
+		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+		m_pSwapChain->Present(1, 0); // VSync
+	}
+
+	void Instinctiv::handle_keyboard_shortcuts()
+	{
+		if (ImGui::GetIO().WantTextInput)
+			return;
+
+		// Ctrl+R or F5 - Refresh
+		bool refresh_pressed = (ImGui::IsKeyPressed(ImGuiKey_R) && ImGui::GetIO().KeyCtrl) ||
+			ImGui::IsKeyPressed(ImGuiKey_F5);
+		if (refresh_pressed && !m_state.is_refreshing)
+		{
+			m_state.is_refreshing = true;
+			m_state.status_message = "Scanning for snapshots...";
+			m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
+		}
+
+		// Escape - Close dialogs
+		if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+		{
+			if (m_state.show_progress_dialog && !m_state.worker->is_busy())
+				m_state.show_progress_dialog = false;
+			else if (m_state.show_first_run_dialog)
+				m_state.show_first_run_dialog = false;
+		}
+	}
+
+	void Instinctiv::handle_dropped_file()
+	{
+		if (g_droppedFile.empty())
+			return;
+
+		std::filesystem::path dropped{ g_droppedFile };
+		std::string ext = dropped.extension().string();
+
+		if (pnq::string::equals_nocase(ext, ".zip"))
+		{
+			// TODO: Find matching instance and select it
+			m_state.status_message = "Dropped snapshot: " + dropped.filename().string();
+		}
+		else if (pnq::string::equals_nocase(ext, ".xml"))
+		{
+			m_state.status_message = "Dropped blueprint: " + dropped.filename().string();
+		}
+		else
+		{
+			m_state.status_message = "Unsupported file type: " + ext;
+		}
+
+		g_droppedFile.clear();
+	}
+
+	void Instinctiv::render_menu_bar()
+	{
+		if (!ImGui::BeginMainMenuBar())
+			return;
+
+		if (ImGui::BeginMenu("File"))
+		{
+			if (ImGui::MenuItem("Exit", "Alt+F4"))
+				m_done = true;
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("View"))
+		{
+			if (ImGui::MenuItem("Refresh", "Ctrl+R", false, !m_state.is_refreshing))
+			{
+				m_state.is_refreshing = true;
+				m_state.status_message = "Scanning for snapshots...";
+				m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
+			}
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Tools"))
+		{
+			ImGui::MenuItem("Settings...");
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Help"))
+		{
+			ImGui::MenuItem("About...");
+			ImGui::EndMenu();
+		}
+
+		ImGui::EndMainMenuBar();
+	}
+
+	void Instinctiv::render_toolbar()
+	{
+		// Get registry data
+		pnq::RefCountedVector<insti::Instance*>* instances = nullptr;
+		pnq::RefCountedVector<insti::Project*>* projects = nullptr;
 
 		if (m_state.m_snapshot_registry)
 		{
-			projects = &(m_state.m_snapshot_registry->m_projects);
-			instances = &(m_state.m_snapshot_registry->m_instances);
+			projects = &m_state.m_snapshot_registry->m_projects;
+			instances = &m_state.m_snapshot_registry->m_instances;
+		}
 
-			if (projects->size() == 1)
+		// Determine current project selection
+		m_current_project = nullptr;
+		std::string current_project_name;
+
+		if (projects && !projects->empty())
+		{
+			const auto lastBlueprint = config::theSettings.application.lastBlueprint.get();
+
+			// Find the project matching saved selection
+			for (auto* project : *projects)
 			{
-				selected_project_index = 0;
-
-				// must select the one-and-only if not selected already
-				const auto lastBlueprint = config::theSettings.application.lastBlueprint.get();
-				name_of_selected_project = projects->at(0)->project_name();
-				if (!pnq::string::equals(lastBlueprint, name_of_selected_project))
+				if (pnq::string::equals(lastBlueprint, project->project_name()))
 				{
-					config::theSettings.application.lastBlueprint.set(name_of_selected_project);
-					config::theSettings.save(*m_pConfigBackend);
+					m_current_project = project;
+					current_project_name = project->project_name();
+					break;
 				}
 			}
-			else if (projects->size() > 1)
+
+			// Fall back to first project if saved selection not found
+			if (!m_current_project)
 			{
-				// check if selection still possible
-				const auto lastBlueprint = config::theSettings.application.lastBlueprint.get();
-				bool found = false;
-				int current_index = 0;
-				for (const auto& project : *projects)
-				{
-					const auto nameOfThisProject = project->project_name();
-					if (pnq::string::equals(lastBlueprint, nameOfThisProject))
-					{
-						selected_project_index = current_index;
-						name_of_selected_project = nameOfThisProject;
-						found = true;
-						break;
-					}
-					++current_index;
-				}
-				if (!found)
-				{
-					name_of_selected_project = projects->at(0)->project_name();
-					assert(!pnq::string::equals(lastBlueprint, name_of_selected_project));
-					config::theSettings.application.lastBlueprint.set(name_of_selected_project);
-					config::theSettings.save(*m_pConfigBackend);
-				}
-			}
-			else
-			{
-				// do not touch the configuration just yet, probably missing an update. keep selection at -1
+				m_current_project = projects->at(0);
+				current_project_name = m_current_project->project_name();
+				config::theSettings.application.lastBlueprint.set(current_project_name);
+				config::theSettings.save(*m_pConfigBackend);
 			}
 		}
-		const char* preview = "";
 
-		if (ImGui::BeginCombo("##Project", name_of_selected_project.c_str()))
+		// Project selector combobox
+		ImGui::SetNextItemWidth(200.0f);
+		if (ImGui::BeginCombo("##Project", current_project_name.c_str()))
 		{
-			for (int i = 0; i < (int)projects->size(); ++i)
+			if (projects)
 			{
-				bool is_selected = (selected_project_index == i);
-				if (ImGui::Selectable((*projects)[i]->project_name().c_str(), is_selected))
+				for (auto* project : *projects)
 				{
-					/*if (selected_blueprint_index != i)
+					bool is_selected = (project == m_current_project);
+					if (ImGui::Selectable(project->project_name().c_str(), is_selected))
 					{
-						selected_blueprint_index = i;
-						config::theSettings.application.lastBlueprint.set((*projects)[i]->name());
+						m_current_project = project;
+						config::theSettings.application.lastBlueprint.set(project->project_name());
 						config::theSettings.save(*m_pConfigBackend);
 					}
-					*/
+					if (is_selected)
+						ImGui::SetItemDefaultFocus();
 				}
-				if (is_selected)
-					ImGui::SetItemDefaultFocus();
 			}
 			ImGui::EndCombo();
 		}
@@ -428,7 +420,7 @@ namespace instinctiv
 		}
 		ImGui::SameLine();
 
-		// Refresh button with spinner when busy
+		// Refresh button
 		ImGui::BeginDisabled(m_state.is_refreshing);
 		if (ImGui::Button(m_state.is_refreshing ? "Refreshing..." : "Refresh"))
 		{
@@ -442,27 +434,40 @@ namespace instinctiv
 		ImGui::TextDisabled("|");
 		ImGui::SameLine();
 
-		// Backup button - requires a blueprint selected
-		bool has_blueprint = (selected_project_index >= 0 && selected_project_index < (int)projects->size());
+		// Operation buttons
+		bool has_project = (m_current_project != nullptr);
+		bool has_instance = (m_state.selected_instance != nullptr);
 		bool is_busy = m_state.worker->is_busy();
 
-		ImGui::BeginDisabled(!has_blueprint || is_busy);
+		// Backup button - requires a project selected
+		ImGui::BeginDisabled(!has_project || is_busy);
 		if (ImGui::Button("Backup"))
 		{
-			start_backup_from_project((*projects)[selected_project_index]);
+			start_backup_from_project(m_current_project);
 		}
 		ImGui::EndDisabled();
-		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_blueprint)
-			ImGui::SetTooltip("Select a blueprint first");
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_project)
+			ImGui::SetTooltip("Select a project first");
 
 		ImGui::SameLine();
 
-		// Clean button - requires a blueprint selected
-		ImGui::BeginDisabled(!has_blueprint || is_busy);
+		// Restore button - requires an instance selected in the table
+		ImGui::BeginDisabled(!has_instance || is_busy);
+		if (ImGui::Button("Restore"))
+		{
+			start_restore_from_instance(m_state.selected_instance);
+		}
+		ImGui::EndDisabled();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_instance)
+			ImGui::SetTooltip("Select a snapshot from the table first");
+
+		ImGui::SameLine();
+
+		// Clean button - requires a project selected
+		ImGui::BeginDisabled(!has_project || is_busy);
 		if (ImGui::Button("Clean"))
 		{
-			auto* blueprint = (*projects)[selected_project_index];
-			m_state.progress_operation = m_state.dry_run ? "Dry-run" : "Clean";
+			m_state.progress_operation = m_state.dry_run ? "Dry-run Clean" : "Clean";
 			m_state.progress_phase = "Starting";
 			m_state.progress_detail = "";
 			m_state.progress_percent = -1;
@@ -470,19 +475,36 @@ namespace instinctiv
 			m_state.show_progress_dialog = true;
 
 			if (m_state.active_blueprint)
-				m_state.active_blueprint->release(REFCOUNT_DEBUG_ARGS);
-			m_state.active_blueprint = blueprint;
+				PNQ_RELEASE(m_state.active_blueprint);
+			m_state.active_blueprint = m_current_project;
+			PNQ_ADDREF(m_state.active_blueprint);
 
-			m_state.worker->post(StartClean{ m_state.m_snapshot_registry, blueprint, m_state.dry_run });
+			m_state.worker->post(StartClean{ m_state.m_snapshot_registry, m_current_project, m_state.dry_run });
 		}
 		ImGui::EndDisabled();
-		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_blueprint)
-			ImGui::SetTooltip("Select a blueprint first");
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_project)
+			ImGui::SetTooltip("Select a project first");
 
-		ImGui::SameLine();
-		if (ImGui::Button("Restore"))
+		// Standalone hook buttons from current project
+		if (has_project)
 		{
-			start_backup_from_project((*projects)[selected_project_index]);
+			auto standalone = m_current_project->standalone_hooks();
+			if (!standalone.empty())
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("|");
+
+				for (auto* hook : standalone)
+				{
+					ImGui::SameLine();
+					ImGui::BeginDisabled(is_busy);
+					if (ImGui::Button(hook->name().c_str()))
+					{
+						start_hook_execution(hook);
+					}
+					ImGui::EndDisabled();
+				}
+			}
 		}
 
 		ImGui::SameLine();
@@ -498,41 +520,54 @@ namespace instinctiv
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s", m_state.status_message.c_str());
 		}
+	}
 
-		ImGui::Separator();
+	void Instinctiv::render_snapshot_table()
+	{
+		// Get instances from registry
+		pnq::RefCountedVector<insti::Instance*>* instances = nullptr;
+		if (m_state.m_snapshot_registry)
+			instances = &m_state.m_snapshot_registry->m_instances;
 
-		float total_width = ImGui::GetContentRegionAvail().x;
-		float snapshot_width = total_width;
-
-		// Left panel: Snapshot table (2/3 width)
-		ImGui::BeginChild("SnapshotList", ImVec2(snapshot_width, 0), true);
-
-		// Get selected blueprint name for filtering (spaces -> underscores to match filename convention)
-		std::string blueprint_filter;
-		if (selected_project_index >= 0 && selected_project_index < (int)projects->size())
+		// Build filtered list
+		m_filtered_instances.clear();
+		if (instances)
 		{
-			blueprint_filter = (*projects)[selected_project_index]->project_name();
-			std::replace(blueprint_filter.begin(), blueprint_filter.end(), ' ', '_');
-		}
-
-		const auto search_text = pnq::string::lowercase(m_state.filter_text);
-		//config::theSettings.application.lastBlueprint.set(((*projects)[i]->name());
-		pnq::RefCountedVector<insti::Instance*> filtered;
-		for (auto* bp : *instances)
-		{
-			if (bp->matches(search_text))
+			const auto search_text = pnq::string::lowercase(m_state.filter_text);
+			for (auto* instance : *instances)
 			{
-				filtered.push_back(bp);
+				if (instance->matches(search_text))
+					m_filtered_instances.push_back(instance);
 			}
+
+			// Sort by timestamp (newest first)
+			std::sort(m_filtered_instances.begin(), m_filtered_instances.end(),
+				[](insti::Instance* a, insti::Instance* b) {
+					return a->m_timestamp > b->m_timestamp;
+				});
 		}
 
-		// Sort by timestamp (newest first) <- TODO: should use UI sorting instead
-		std::sort(filtered.begin(), filtered.end(),
-			[](insti::Instance* a, insti::Instance* b) {
-				return a->m_timestamp > b->m_timestamp;
-			});
+		// Validate selection (might have been invalidated by refresh)
+		if (m_state.selected_instance)
+		{
+			bool found = false;
+			for (auto* instance : m_filtered_instances)
+			{
+				if (instance == m_state.selected_instance)
+				{
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				m_state.selected_instance = nullptr;
+		}
 
-		if (filtered.empty())
+		// Render table
+		float table_width = ImGui::GetContentRegionAvail().x;
+		ImGui::BeginChild("SnapshotList", ImVec2(table_width, 0), true);
+
+		if (m_filtered_instances.empty())
 		{
 			ImGui::TextDisabled("No snapshots found");
 		}
@@ -553,72 +588,103 @@ namespace instinctiv
 				ImGui::TableSetupScrollFreeze(0, 1);
 				ImGui::TableHeadersRow();
 
-				int entry_index = 1000;
-				for (auto* entry : filtered)
+				int row_id = 0;
+				for (auto* entry : m_filtered_instances)
 				{
-					ImGui::PushID(entry_index++);
+					ImGui::PushID(row_id++);
 					ImGui::TableNextRow();
 
-					// Check installation status for row highlighting
+					// Row highlighting based on installation status
 					auto status = entry->m_install_status;
-					bool is_selected = (m_state.selected_snapshot == entry);
-
-					// Set row background color for installed snapshot
 					if (status == insti::InstallStatus::Installed)
-					{
 						ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(100, 200, 100, 60));
-					}
 					else if (status == insti::InstallStatus::DifferentVersion)
-					{
 						ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(220, 180, 50, 40));
-					}
 
-					// Variant
+					// Name column with selection
 					ImGui::TableNextColumn();
+					bool is_selected = (m_state.selected_instance == entry);
 					ImGuiSelectableFlags sel_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap;
 					if (ImGui::Selectable(entry->project_name().c_str(), is_selected, sel_flags))
-					{
-						m_state.selected_snapshot = entry;
-					}
+						m_state.selected_instance = entry;
 
+					// Other columns
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->m_description.c_str());
+					ImGui::TextUnformatted(entry->m_description.c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->timestamp_string().c_str());
+					ImGui::TextUnformatted(entry->timestamp_string().c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->installdir().c_str());
+					ImGui::TextUnformatted(entry->installdir().c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->project_version().c_str());
+					ImGui::TextUnformatted(entry->project_version().c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->m_machine.c_str());
+					ImGui::TextUnformatted(entry->m_machine.c_str());
 					ImGui::TableNextColumn();
-					ImGui::Text("%s", entry->m_user.c_str());
+					ImGui::TextUnformatted(entry->m_user.c_str());
+
 					ImGui::PopID();
 				}
 
 				ImGui::EndTable();
 			}
 		}
+
 		ImGui::EndChild();
+	}
 
-		ImGui::SameLine();
+	void Instinctiv::start_restore_from_instance(insti::Instance* instance)
+	{
+		if (!instance)
+			return;
 
-		ImGui::End();
+		spdlog::info("start_restore_from_instance: {}", instance->m_snapshot_path);
 
-		// Progress dialog
-		render_progress_dialog();
+		// Setup progress dialog
+		m_state.progress_operation = m_state.dry_run ? "Dry-run Restore" : "Restore";
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Starting restore: " + instance->project_name());
+		m_state.progress_log.push_back("From: " + instance->m_snapshot_path);
+		m_state.show_progress_dialog = true;
 
-		// First-run setup dialog
-		render_first_run_dialog();
+		// Store reference to instance for the operation
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = instance;  // Instance inherits from Project
+		PNQ_ADDREF(m_state.active_blueprint);
 
-		// Rendering
-		ImGui::Render();
-		const float clear_color[4] = { 0.1f, 0.1f, 0.1f, 1.0f };
-		m_pd3dDeviceContext->OMSetRenderTargets(1, &m_mainRenderTargetView, nullptr);
-		m_pd3dDeviceContext->ClearRenderTargetView(m_mainRenderTargetView, clear_color);
-		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+		// Start restore on worker thread (pass archive path)
+		std::unordered_map<std::string, std::string> variable_overrides;  // TODO: support overrides in UI
+		m_state.worker->post(StartRestore{ m_state.m_snapshot_registry, instance->m_snapshot_path, variable_overrides });
+	}
 
-		m_pSwapChain->Present(1, 0); // VSync
+	void Instinctiv::start_hook_execution(insti::IHook* hook)
+	{
+		if (!hook || !m_current_project)
+			return;
+
+		std::string hook_name = hook->name().empty() ? hook->type_name() : hook->name();
+		spdlog::info("start_hook_execution: {}", hook_name);
+
+		// Setup progress dialog
+		m_state.progress_operation = hook_name;
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Running hook: " + hook_name);
+		m_state.show_progress_dialog = true;
+
+		// Store reference to project for the operation (add ref since we're keeping it)
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = m_current_project;
+		PNQ_ADDREF(m_state.active_blueprint);
+
+		// Start hook execution on worker thread
+		m_state.worker->post(StartHook{ m_current_project, hook });
 	}
 
 	void Instinctiv::render_first_run_dialog()
@@ -729,10 +795,13 @@ namespace instinctiv
 		RegisterClassExW(&wc);
 		m_wc = wc;
 
+
+		const auto strWindowTitle{ std::format("insti {}", insti::version()) };
+
 		m_hWnd = CreateWindowExW(
 			0,
 			wc.lpszClassName,
-			L"insti",
+			pnq::win32::wstr_param{ strWindowTitle },
 			WS_OVERLAPPEDWINDOW,
 			posX, posY,
 			width, height,
@@ -1058,6 +1127,9 @@ namespace instinctiv
 	// Start backup operation from a blueprint entry
 	void Instinctiv::start_backup_from_project(insti::Project* blueprint)
 	{
+		if (!blueprint)
+			return;
+
 		spdlog::info("start_backup_from_project: {}", blueprint->source_path());
 
 		spdlog::info("Blueprint loaded: {} v{}", blueprint->project_name(), blueprint->project_version());
@@ -1117,8 +1189,9 @@ namespace instinctiv
 
 		// Store blueprint for the operation (will be released when complete)
 		if (m_state.active_blueprint)
-			m_state.active_blueprint->release(REFCOUNT_DEBUG_ARGS);
+			PNQ_RELEASE(m_state.active_blueprint);
 		m_state.active_blueprint = blueprint;
+		PNQ_ADDREF(m_state.active_blueprint);
 
 		// Setup progress dialog
 		m_state.show_progress_dialog = true;

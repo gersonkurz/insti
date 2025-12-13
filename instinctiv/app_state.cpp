@@ -44,7 +44,7 @@ namespace instinctiv
 
 	void AppState::clear_entries()
 	{
-		selected_snapshot = nullptr;
+		selected_instance = nullptr;
 	}
 
 } // namespace instinctiv

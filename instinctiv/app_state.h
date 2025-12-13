@@ -28,8 +28,8 @@ namespace instinctiv
 		/// Shutdown and cleanup.
 		void shutdown();
 
-		// UI State - Snapshots
-		insti::Project* selected_snapshot = nullptr;  // Currently selected snapshot
+		// UI State - Selection
+		insti::Instance* selected_instance = nullptr;  // Currently selected instance in table
 
 		// UI State - Blueprints
 		std::string filter_text;                    // Filter input

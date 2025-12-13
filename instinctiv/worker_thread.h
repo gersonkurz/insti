@@ -138,6 +138,18 @@ namespace instinctiv
 		std::vector<std::string> roots;
 	};
 
+	class StartHook final
+	{
+	public:
+		StartHook(insti::Blueprint* bp, insti::IHook* hook)
+			: m_blueprint{ bp }
+			, m_hook{ hook }
+		{
+		}
+		pnq::RefCountedInstance<insti::Blueprint*> m_blueprint;
+		pnq::RefCountedInstance<insti::IHook*> m_hook;
+	};
+
 	struct DecisionResponse
 	{
 		insti::IActionCallback::Decision decision;
@@ -158,6 +170,7 @@ namespace instinctiv
 		StartRestore,
 		StartClean,
 		StartVerify,
+		StartHook,
 		RefreshRegistry,
 		DecisionResponse,
 		CancelOperation,
@@ -289,6 +302,7 @@ namespace instinctiv
 		void do_restore(const StartRestore& cmd);
 		void do_clean(const StartClean& cmd);
 		void do_verify(const StartVerify& cmd);
+		void do_hook(const StartHook& cmd);
 		void do_refresh_registry(const RefreshRegistry& cmd);
 
 		/// Post a message to the UI (called from worker thread).

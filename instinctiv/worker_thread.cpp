@@ -165,6 +165,8 @@ void WorkerThread::process_message(const WorkerMessage& msg)
             do_clean(arg);
         else if constexpr (std::is_same_v<T, StartVerify>)
             do_verify(arg);
+        else if constexpr (std::is_same_v<T, StartHook>)
+            do_hook(arg);
         else if constexpr (std::is_same_v<T, RefreshRegistry>)
             do_refresh_registry(arg);
         else if constexpr (std::is_same_v<T, ShutdownWorker>)
@@ -273,6 +275,28 @@ void WorkerThread::do_verify(const StartVerify& cmd)
     auto results = orc.verify(cmd.m_blueprint.get(), &callback);
 
     post_to_ui(VerifyComplete{std::move(results)});
+    m_busy.store(false);
+}
+
+void WorkerThread::do_hook(const StartHook& cmd)
+{
+    m_busy.store(true);
+    m_cancel_requested.store(false);
+
+    auto* hook = cmd.m_hook.get();
+    auto* blueprint = cmd.m_blueprint.get();
+    std::string hook_name = hook->name().empty() ? hook->type_name() : hook->name();
+
+    post_to_ui(Progress{"Executing", hook_name, -1});
+    post_to_ui(LogEntry{LogEntry::Level::Info, "Running hook: " + hook_name});
+
+    bool success = hook->execute(blueprint->resolved_variables());
+
+    post_to_ui(OperationComplete{
+        success,
+        success ? ("Hook '" + hook_name + "' completed") : ("Hook '" + hook_name + "' failed"),
+        blueprint->project_name()
+    });
     m_busy.store(false);
 }
 
