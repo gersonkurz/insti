@@ -54,11 +54,13 @@ namespace instinctiv
 		void render_snapshot_table();
 		void render_first_run_dialog();
 		void render_progress_dialog();
+		void render_font_dialog();
 
 		// Helpers
 		void handle_keyboard_shortcuts();
 		void handle_dropped_file();
 		void rebuild_font_atlas(float fontSize);
+		void apply_style();
 		std::string show_save_dialog(const char* filter, const char* default_name, const char* default_ext);
 		std::string browse_for_folder(HWND hwnd, const char* title);
 
@@ -103,5 +105,14 @@ namespace instinctiv
 		WNDCLASSEXW m_wc{};
 		HINSTANCE m_hInstance{};
 		bool m_done{ false };
+
+		// Font size change (deferred to avoid mid-frame rebuild)
+		float m_pendingFontSize{ 0.0f };
+
+		// Font selection dialog
+		bool m_showFontDialog{ false };
+		std::vector<std::string> m_availableFonts;
+		int m_selectedFontIndex{ -1 };
+		std::string m_originalFontName;  // To restore on Cancel
 	};
 }

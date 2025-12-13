@@ -212,6 +212,13 @@ namespace instinctiv
 			create_render_target();
 		}
 
+		// Apply pending font size change BEFORE starting any ImGui frame
+		if (m_pendingFontSize > 0.0f)
+		{
+			rebuild_font_atlas(m_pendingFontSize);
+			m_pendingFontSize = 0.0f;
+		}
+
 		// Start the Dear ImGui frame
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
@@ -227,8 +234,29 @@ namespace instinctiv
 		// UI rendering
 		render_menu_bar();
 
-		// Main window content
+		// Handle Ctrl+Mousewheel for font size changes
 		ImGuiIO& io = ImGui::GetIO();
+		if (io.KeyCtrl && io.MouseWheel != 0.0f)
+		{
+			auto& appSettings = config::theSettings.application;
+			int32_t currentSizeScaled = appSettings.fontSizeScaled.get();
+			float currentSize = currentSizeScaled / 100.0f;
+			float newSize = currentSize + io.MouseWheel * 1.0f; // 1 pixel per wheel notch
+
+			// Clamp font size between 8 and 32
+			newSize = std::max(8.0f, std::min(32.0f, newSize));
+
+			if (newSize != currentSize)
+			{
+				int32_t newSizeScaled = static_cast<int32_t>(newSize * 100.0f);
+				appSettings.fontSizeScaled.set(newSizeScaled);
+				config::theSettings.save(*m_pConfigBackend);
+				// Defer font rebuild until next frame
+				m_pendingFontSize = newSize;
+			}
+		}
+
+		// Main window content
 		ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()));
 		ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, io.DisplaySize.y - ImGui::GetFrameHeight()));
 		ImGui::Begin("##MainContent", nullptr,
@@ -247,6 +275,7 @@ namespace instinctiv
 		// Modal dialogs
 		render_progress_dialog();
 		render_first_run_dialog();
+		render_font_dialog();
 
 		// Rendering
 		ImGui::Render();
@@ -328,18 +357,45 @@ namespace instinctiv
 				m_state.status_message = "Scanning for snapshots...";
 				m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
 			}
-			ImGui::EndMenu();
-		}
 
-		if (ImGui::BeginMenu("Tools"))
-		{
-			ImGui::MenuItem("Settings...");
+			ImGui::Separator();
+
+			// Theme selection
+			auto& appSettings = config::theSettings.application;
+			std::string currentTheme = appSettings.theme.get();
+
+			if (ImGui::MenuItem("Dark Theme", nullptr, currentTheme == "Dark"))
+			{
+				appSettings.theme.set("Dark");
+				config::theSettings.save(*m_pConfigBackend);
+				ImGui::StyleColorsDark();
+				apply_style();
+			}
+
+			if (ImGui::MenuItem("Light Theme", nullptr, currentTheme == "Light"))
+			{
+				appSettings.theme.set("Light");
+				config::theSettings.save(*m_pConfigBackend);
+				ImGui::StyleColorsLight();
+				apply_style();
+			}
+
+			ImGui::Separator();
+
+			if (ImGui::MenuItem("Select Font..."))
+			{
+				m_showFontDialog = true;
+			}
+
 			ImGui::EndMenu();
 		}
 
 		if (ImGui::BeginMenu("Help"))
 		{
-			ImGui::MenuItem("About...");
+			if (ImGui::MenuItem("About insti..."))
+			{
+				ShellExecuteW(m_hWnd, L"open", L"https://github.com/gersonkurz/insti", nullptr, nullptr, SW_SHOWNORMAL);
+			}
 			ImGui::EndMenu();
 		}
 
@@ -796,7 +852,7 @@ namespace instinctiv
 		m_wc = wc;
 
 
-		const auto strWindowTitle{ std::format("insti {}", insti::version()) };
+		const auto strWindowTitle{ std::format("instinctiv {}", insti::version()) };
 
 		m_hWnd = CreateWindowExW(
 			0,
@@ -847,12 +903,7 @@ namespace instinctiv
 			ImGui::StyleColorsLight();
 		else
 			ImGui::StyleColorsDark();
-
-		ImGuiStyle& style = ImGui::GetStyle();
-		style.FrameRounding = 4.0f;
-		style.WindowRounding = 6.0f;
-		style.ScrollbarRounding = 4.0f;
-		style.GrabRounding = 4.0f;
+		apply_style();
 
 		// Setup Platform/Renderer backends
 		ImGui_ImplWin32_Init(m_hWnd);
@@ -898,6 +949,30 @@ namespace instinctiv
 		return true;
 	}
 
+	// Look up font filename from Windows registry
+	// Returns empty string if not found
+	static std::string lookup_font_file(const std::string& fontName)
+	{
+		// Fonts are registered in HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts
+		// Value names are like "Arial (TrueType)" or "Google Sans Flex (TrueType)"
+		// Value data is the filename (or full path for user-installed fonts)
+		pnq::regis3::key fontsKey{ "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts" };
+		if (!fontsKey.open_for_reading())
+			return {};
+
+		// Search for a value that starts with the font name
+		std::string searchPrefix = fontName + " (";
+		for (const auto& value : fontsKey.enum_values())
+		{
+			std::string valueName{ value.name() };
+			if (valueName.starts_with(searchPrefix))
+			{
+				return value.get_string();
+			}
+		}
+		return {};
+	}
+
 	// Rebuild font atlas with custom font
 	void Instinctiv::rebuild_font_atlas(float fontSize)
 	{
@@ -906,41 +981,58 @@ namespace instinctiv
 		// Clear existing fonts
 		io.Fonts->Clear();
 
-		// Try to load Segoe UI from Windows fonts
-		wchar_t windowsDir[MAX_PATH];
-		if (GetWindowsDirectoryW(windowsDir, MAX_PATH) == 0)
-		{
-			io.Fonts->AddFontDefault();
-		}
-		else
-		{
-			std::wstring fontsDir = std::wstring(windowsDir) + L"\\Fonts\\";
-			const wchar_t* fontFiles[] = {
-				L"segoeui.ttf",  // Segoe UI (modern, clean)
-				L"arial.ttf"     // Arial (fallback)
-			};
+		// Get configured font name
+		std::string fontName = config::theSettings.application.fontName.get();
 
-			bool fontLoaded = false;
-			for (const wchar_t* fontFile : fontFiles)
+		const auto windowsDir{ pnq::directory::windows() };
+		const auto fontsDir{ pnq::path::combine(windowsDir, "Fonts") };
+		bool fontLoaded = false;
+
+		// Look up font file from registry
+		std::string fontFile = lookup_font_file(fontName);
+		if (!fontFile.empty())
+		{
+			// Check if it's a full path or just a filename
+			std::string fontPath;
+			if (fontFile.find('\\') != std::string::npos || fontFile.find('/') != std::string::npos)
+				fontPath = fontFile;  // Full path
+			else
+				fontPath = pnq::path::combine(fontsDir, fontFile);  // Relative to Fonts dir
+
+			if (io.Fonts->AddFontFromFileTTF(fontPath.c_str(), fontSize))
 			{
-				std::wstring fontPath = fontsDir + fontFile;
-				// Convert to narrow string for ImGui
-				int size = WideCharToMultiByte(CP_UTF8, 0, fontPath.c_str(), -1, nullptr, 0, nullptr, nullptr);
-				std::string narrowPath(size, 0);
-				WideCharToMultiByte(CP_UTF8, 0, fontPath.c_str(), -1, &narrowPath[0], size, nullptr, nullptr);
-				narrowPath.resize(size - 1); // Remove null terminator
+				spdlog::info("Loaded font: {} ({}) at size {}", fontName, fontPath, fontSize);
+				fontLoaded = true;
+			}
+		}
 
-				if (io.Fonts->AddFontFromFileTTF(narrowPath.c_str(), fontSize))
+		// Fallback to Segoe UI, then Arial
+		if (!fontLoaded)
+		{
+			if (!fontFile.empty())
+				spdlog::warn("Could not load font '{}' from '{}', trying fallbacks", fontName, fontFile);
+			else
+				spdlog::warn("Font '{}' not found in registry, trying fallbacks", fontName);
+
+			const char* fallbackNames[] = { "Segoe UI", "Arial" };
+			for (const char* fallbackName : fallbackNames)
+			{
+				std::string fallbackFile = lookup_font_file(fallbackName);
+				if (!fallbackFile.empty())
 				{
-					spdlog::info("Loaded font: {} at size {}", narrowPath, fontSize);
-					fontLoaded = true;
-					break;
+					const auto fontPath{ pnq::path::combine(fontsDir, fallbackFile) };
+					if (io.Fonts->AddFontFromFileTTF(fontPath.c_str(), fontSize))
+					{
+						spdlog::info("Loaded fallback font: {} ({}) at size {}", fallbackName, fontPath, fontSize);
+						fontLoaded = true;
+						break;
+					}
 				}
 			}
 
 			if (!fontLoaded)
 			{
-				spdlog::warn("Could not load custom font, using default");
+				spdlog::warn("Could not load any font, using ImGui default");
 				io.Fonts->AddFontDefault();
 			}
 		}
@@ -950,7 +1042,11 @@ namespace instinctiv
 
 		// Set the new font as default
 		if (io.Fonts->Fonts.Size > 0)
+		{
 			io.FontDefault = io.Fonts->Fonts[0];
+			// Update ImGui's FontSizeBase so it renders at the new size
+			ImGui::GetStyle().FontSizeBase = fontSize;
+		}
 
 		// Notify ImGui backends to update their font texture
 		if (m_pd3dDevice && m_pd3dDeviceContext)
@@ -958,6 +1054,16 @@ namespace instinctiv
 			ImGui_ImplDX11_InvalidateDeviceObjects();
 			ImGui_ImplDX11_CreateDeviceObjects();
 		}
+	}
+
+	// Apply custom style adjustments (called after theme change)
+	void Instinctiv::apply_style()
+	{
+		ImGuiStyle& style = ImGui::GetStyle();
+		style.FrameRounding = 4.0f;
+		style.WindowRounding = 6.0f;
+		style.ScrollbarRounding = 4.0f;
+		style.GrabRounding = 4.0f;
 	}
 
 	// Initialize configuration
@@ -1290,6 +1396,120 @@ namespace instinctiv
 				m_state.active_blueprint->release(REFCOUNT_DEBUG_ARGS);
 				m_state.active_blueprint = nullptr;
 			}
+		}
+	}
+
+	// Font selection dialog
+	void Instinctiv::render_font_dialog()
+	{
+		if (!m_showFontDialog)
+			return;
+
+		// Populate font list on first open
+		if (m_availableFonts.empty())
+		{
+			// Save original font for Cancel
+			m_originalFontName = config::theSettings.application.fontName.get();
+
+			pnq::regis3::key fontsKey{ "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts" };
+			if (fontsKey.open_for_reading())
+			{
+				for (const auto& value : fontsKey.enum_values())
+				{
+					std::string valueName{ value.name() };
+					// Extract font name (strip " (TrueType)" or " (OpenType)" suffix)
+					auto pos = valueName.find(" (");
+					if (pos != std::string::npos)
+						valueName = valueName.substr(0, pos);
+					if (!valueName.empty())
+						m_availableFonts.push_back(valueName);
+				}
+				std::sort(m_availableFonts.begin(), m_availableFonts.end());
+			}
+
+			// Find current font in list
+			for (size_t i = 0; i < m_availableFonts.size(); ++i)
+			{
+				if (m_availableFonts[i] == m_originalFontName)
+				{
+					m_selectedFontIndex = static_cast<int>(i);
+					break;
+				}
+			}
+		}
+
+		ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+		bool open = true;
+		bool accepted = false;
+		bool cancelled = false;
+
+		if (ImGui::Begin("Select Font", &open, ImGuiWindowFlags_NoCollapse))
+		{
+			ImGui::Text("Available Fonts:");
+			ImGui::Spacing();
+
+			// Listbox with all fonts
+			ImVec2 listSize(-FLT_MIN, -ImGui::GetFrameHeightWithSpacing() - 8);
+			if (ImGui::BeginListBox("##FontList", listSize))
+			{
+				for (int i = 0; i < static_cast<int>(m_availableFonts.size()); ++i)
+				{
+					bool isSelected = (m_selectedFontIndex == i);
+					if (ImGui::Selectable(m_availableFonts[i].c_str(), isSelected))
+					{
+						if (m_selectedFontIndex != i)
+						{
+							m_selectedFontIndex = i;
+							// Apply font immediately for preview
+							config::theSettings.application.fontName.set(m_availableFonts[i]);
+							float currentSize = config::theSettings.application.fontSizeScaled.get() / 100.0f;
+							m_pendingFontSize = currentSize;
+						}
+					}
+					if (isSelected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndListBox();
+			}
+
+			ImGui::Spacing();
+
+			// OK / Cancel buttons
+			if (ImGui::Button("OK", ImVec2(80, 0)))
+			{
+				accepted = true;
+				open = false;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(80, 0)))
+			{
+				cancelled = true;
+				open = false;
+			}
+		}
+		ImGui::End();
+
+		if (!open)
+		{
+			if (accepted)
+			{
+				// Save the selection
+				config::theSettings.save(*m_pConfigBackend);
+			}
+			else if (cancelled)
+			{
+				// Restore original font
+				config::theSettings.application.fontName.set(m_originalFontName);
+				float currentSize = config::theSettings.application.fontSizeScaled.get() / 100.0f;
+				m_pendingFontSize = currentSize;
+			}
+
+			m_showFontDialog = false;
+			m_availableFonts.clear();
+			m_selectedFontIndex = -1;
+			m_originalFontName.clear();
 		}
 	}
 
