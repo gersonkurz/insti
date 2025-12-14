@@ -115,3 +115,6 @@ namespace insti
 
 // Registry (Snapshot discovery)
 #include <insti/registry/snapshot_registry.h>
+
+// Config
+#include <insti/config/settings.h>

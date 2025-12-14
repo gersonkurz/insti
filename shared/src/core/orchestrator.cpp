@@ -7,30 +7,33 @@ namespace insti
 	namespace
 	{
 
-		/// Run hooks for a specific phase.
-		/// @param bp Blueprint containing hooks
-		/// @param phase Phase to run hooks for
+		/// Run lifecycle hooks (startup or shutdown).
+		/// @param hooks Vector of hooks to execute
+		/// @param lifecycle_name Name for progress reporting ("Startup" or "Shutdown")
+		/// @param vars Resolved variables for hook execution
 		/// @param cb Callback for progress/errors (may be nullptr)
 		/// @param skip_all Reference to skip-all state (checked and updated)
+		/// @param force If true, also run hooks marked as force-only
 		/// @return true if all hooks succeeded or were skipped, false if aborted
-		bool run_hooks(const Blueprint* bp, Phase phase, IActionCallback* cb, bool& skip_all)
+		bool run_lifecycle_hooks(
+			const pnq::RefCountedVector<IHook*>& hooks,
+			const char* lifecycle_name,
+			const std::unordered_map<std::string, std::string>& vars,
+			IActionCallback* cb,
+			bool& skip_all,
+			bool force = false)
 		{
-			const auto& hooks = bp->hooks(phase);
 			if (hooks.empty())
 				return true;
 
-			const auto& vars = bp->resolved_variables();
-
 			for (auto* hook : hooks)
 			{
-				if (cb)
-					cb->on_progress(phase_to_string(phase), hook->type_name(), -1);
+				// Skip force-only hooks unless force is enabled
+				if (hook->is_force() && !force)
+					continue;
 
-				// Set phase for hooks that need to know direction
-				if (auto* sub = dynamic_cast<SubstituteHook*>(hook))
-					sub->set_phase(phase);
-				if (auto* sql = dynamic_cast<SqlHook*>(hook))
-					sql->set_phase(phase);
+				if (cb)
+					cb->on_progress(lifecycle_name, hook->type_name(), -1);
 
 				if (!hook->execute(vars))
 				{
@@ -56,6 +59,9 @@ namespace insti
 					}
 					else
 					{
+						// No callback - treat shutdown failures as warnings, startup failures as errors
+						if (std::string_view(lifecycle_name) == "Shutdown")
+							continue; // Shutdown failures are non-fatal (app might not be running)
 						return false;
 					}
 				}
@@ -77,7 +83,7 @@ namespace insti
 			PNQ_RELEASE(m_snapshot_registry);
 		}
 
-		bool Orchestrator::backup(const Project* bp, std::string_view output_path, IActionCallback* cb)
+		bool Orchestrator::backup(const Project* bp, std::string_view output_path, IActionCallback* cb, bool force, const std::string& description)
 		{
 			if (!bp)
 			{
@@ -88,15 +94,16 @@ namespace insti
 			spdlog::info("backup: starting backup to {}", output_path);
 
 			bool skip_all = false;
+			const auto& vars = bp->resolved_variables();
 
-			// Run PreBackup hooks
-			spdlog::info("backup: running PreBackup hooks");
-			if (!run_hooks(bp, Phase::PreBackup, cb, skip_all))
+			// Shutdown before backup
+			spdlog::info("backup: running shutdown hooks");
+			if (!run_lifecycle_hooks(bp->shutdown_hooks(), "Shutdown", vars, cb, skip_all, force))
 			{
-				spdlog::error("backup: PreBackup hooks failed");
+				spdlog::error("backup: shutdown hooks failed");
 				return false;
 			}
-			spdlog::info("backup: PreBackup hooks completed");
+			spdlog::info("backup: shutdown hooks completed");
 
 			// Create snapshot writer
 			ZipSnapshotWriter writer;
@@ -143,9 +150,20 @@ namespace insti
 				return false;
 			}
 
-			// Write blueprint to archive
+			// Write blueprint to archive with instance metadata
 			spdlog::info("backup: writing blueprint.xml to archive");
-			if (!writer.write_text("blueprint.xml", bp->to_xml()))
+			auto now = std::chrono::system_clock::now();
+			std::string machine, user;
+			auto it = vars.find("COMPUTERNAME");
+			if (it != vars.end())
+				machine = it->second;
+			it = vars.find("USERNAME");
+			if (it != vars.end())
+				user = it->second;
+
+			std::string instance_description = description.empty() ? bp->project_description() : description;
+			std::string instance_xml = bp->to_instance_xml(now, machine, user, instance_description);
+			if (!writer.write_text("blueprint.xml", instance_xml))
 			{
 				spdlog::error("backup: failed to write blueprint.xml");
 				if (cb)
@@ -163,11 +181,11 @@ namespace insti
 				return false;
 			}
 
-			// Run PostBackup hooks
-			spdlog::info("backup: running PostBackup hooks");
-			if (!run_hooks(bp, Phase::PostBackup, cb, skip_all))
+			// Startup after backup
+			spdlog::info("backup: running startup hooks");
+			if (!run_lifecycle_hooks(bp->startup_hooks(), "Startup", vars, cb, skip_all, force))
 			{
-				spdlog::error("backup: PostBackup hooks failed");
+				spdlog::error("backup: startup hooks failed");
 				return false;
 			}
 
@@ -180,12 +198,13 @@ namespace insti
 			return true;
 		}
 
-		bool Orchestrator::restore(const Instance* bp, std::string_view archive_path, IActionCallback* cb, bool simulate)
+		bool Orchestrator::restore(const Instance* bp, std::string_view archive_path, IActionCallback* cb, bool simulate, bool force)
 		{
 			if (!bp)
 				return false;
 
 			bool skip_all = false;
+			const auto& vars = bp->resolved_variables();
 
 			// Open archive
 			ZipSnapshotReader reader;
@@ -196,10 +215,6 @@ namespace insti
 					cb->on_error("Failed to open snapshot", archive_path);
 				return false;
 			}
-
-			// Run PreRestore hooks (skip in simulate mode)
-			if (!simulate && !run_hooks(bp, Phase::PreRestore, cb, skip_all))
-				return false;
 
 			// Clean existing resources (reverse order)
 			auto* clean_ctx = ActionContext::for_clean(bp, cb);
@@ -240,8 +255,8 @@ namespace insti
 			if (!success)
 				return false;
 
-			// Run PostRestore hooks (skip in simulate mode)
-			if (!simulate && !run_hooks(bp, Phase::PostRestore, cb, skip_all))
+			// Startup after restore (skip in simulate mode)
+			if (!simulate && !run_lifecycle_hooks(bp->startup_hooks(), "Startup", vars, cb, skip_all, force))
 				return false;
 
 			if (!simulate && success)
@@ -254,15 +269,16 @@ namespace insti
 			return true;
 		}
 
-		bool Orchestrator::clean(const Blueprint* bp, IActionCallback* cb, bool simulate)
+		bool Orchestrator::clean(const Blueprint* bp, IActionCallback* cb, bool simulate, bool force)
 		{
 			if (!bp)
 				return false;
 
 			bool skip_all = false;
+			const auto& vars = bp->resolved_variables();
 
-			// Run PreClean hooks (skip in simulate mode)
-			if (!simulate && !run_hooks(bp, Phase::PreClean, cb, skip_all))
+			// Shutdown before clean (skip in simulate mode)
+			if (!simulate && !run_lifecycle_hooks(bp->shutdown_hooks(), "Shutdown", vars, cb, skip_all, force))
 				return false;
 
 			// Create context
@@ -286,15 +302,14 @@ namespace insti
 			skip_all = ctx->skip_all_errors();
 			ctx->release(REFCOUNT_DEBUG_ARGS);
 
-			// Run PostClean hooks (even if clean had failures, skip in simulate mode)
-			if (!simulate)
+			if (!simulate && success)
 			{
-				run_hooks(bp, Phase::PostClean, cb, skip_all);
-				if (success)
-				{
-					m_snapshot_registry->on_clean_complete(bp->project_name());
-				}
+				m_snapshot_registry->on_clean_complete(bp->project_name());
 			}
+
+			if (cb)
+				cb->on_progress("Clean", "Complete", 100);
+
 			return success;
 		}
 

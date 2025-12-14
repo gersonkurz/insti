@@ -53,6 +53,12 @@ namespace insti
 
 		bool update_install_status(std::string_view path, InstallStatus install_status);
 
+		/// Mark all instances (snapshots) of a project as NotInstalled.
+		/// Only affects .zip files, never .xml project blueprints.
+		/// @param project_name Name of the project to mark
+		/// @return Number of entries updated
+		int mark_all_instances_not_installed(std::string_view project_name);
+
 		/// Remove a cache entry.
 		/// @param path File path (will be lowercased)
 		void remove(std::string_view path);

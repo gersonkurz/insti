@@ -14,7 +14,7 @@ namespace insti
 
 /// Hook to execute SQL query on a SQLite database.
 ///
-/// Typically used in PostRestore to patch database values with resolved variables.
+/// Typically used during restore to patch database values with resolved variables.
 /// Both file path and query support variable substitution.
 class SqlHook : public IHook
 {
@@ -31,12 +31,12 @@ public:
         , m_query{std::move(query)}
     {}
 
-    /// Set the execution phase (called by orchestrator before execute).
-    void set_phase(Phase phase) { m_phase = phase; }
+    /// Set the direction (called by orchestrator before execute).
+    void set_direction(Direction dir) { m_direction = dir; }
 
     /// @name Accessors
     /// @{
-    Phase phase() const { return m_phase; }
+    Direction direction() const { return m_direction; }
     const std::string& file_path() const { return m_file_path; }
     const std::string& query() const { return m_query; }
     /// @}
@@ -46,7 +46,7 @@ private:
 
     const std::string m_file_path;
     const std::string m_query;
-    Phase m_phase{Phase::PostRestore}; ///< Mutable - set by orchestrator before execute
+    Direction m_direction{Direction::Restore}; ///< Set by orchestrator before execute
 };
 
 } // namespace insti

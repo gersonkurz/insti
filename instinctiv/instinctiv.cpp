@@ -97,7 +97,7 @@ namespace instinctiv
 		}
 
 		// Save configuration
-		config::theSettings.save(*m_pConfigBackend);
+		config::theSettings.save();
 		spdlog::info("Configuration saved to: {}", m_configPath.string());
 
 		// Cleanup
@@ -254,7 +254,7 @@ namespace instinctiv
 			{
 				int32_t newSizeScaled = static_cast<int32_t>(newSize * 100.0f);
 				appSettings.fontSizeScaled.set(newSizeScaled);
-				config::theSettings.save(*m_pConfigBackend);
+				config::theSettings.save();
 				// Defer font rebuild until next frame
 				m_pendingFontSize = newSize;
 			}
@@ -371,7 +371,7 @@ namespace instinctiv
 			if (ImGui::MenuItem("Dark Theme", nullptr, currentTheme == "Dark"))
 			{
 				appSettings.theme.set("Dark");
-				config::theSettings.save(*m_pConfigBackend);
+				config::theSettings.save();
 				ImGui::StyleColorsDark();
 				apply_style();
 			}
@@ -379,7 +379,7 @@ namespace instinctiv
 			if (ImGui::MenuItem("Light Theme", nullptr, currentTheme == "Light"))
 			{
 				appSettings.theme.set("Light");
-				config::theSettings.save(*m_pConfigBackend);
+				config::theSettings.save();
 				apply_light_theme();
 				apply_style();
 			}
@@ -387,7 +387,7 @@ namespace instinctiv
 			if (ImGui::MenuItem("Tomorrow Night Blue", nullptr, currentTheme == "Tomorrow Night Blue"))
 			{
 				appSettings.theme.set("Tomorrow Night Blue");
-				config::theSettings.save(*m_pConfigBackend);
+				config::theSettings.save();
 				apply_tomorrow_night_blue();
 				apply_style();
 			}
@@ -451,7 +451,7 @@ namespace instinctiv
 				m_current_project = projects->at(0);
 				current_project_name = m_current_project->project_name();
 				config::theSettings.application.lastBlueprint.set(current_project_name);
-				config::theSettings.save(*m_pConfigBackend);
+				config::theSettings.save();
 			}
 		}
 
@@ -468,7 +468,7 @@ namespace instinctiv
 					{
 						m_current_project = project;
 						config::theSettings.application.lastBlueprint.set(project->project_name());
-						config::theSettings.save(*m_pConfigBackend);
+						config::theSettings.save();
 					}
 					if (is_selected)
 						ImGui::SetItemDefaultFocus();
@@ -1184,7 +1184,7 @@ namespace instinctiv
 		m_pConfigBackend = PNQ_NEW pnq::config::TomlBackend{ m_configPath.string() };
 		if (m_pConfigBackend)
 		{
-			config::theSettings.load(*m_pConfigBackend);
+			config::theSettings.load();
 		}
 
 		// Ensure default registry root exists
@@ -1297,40 +1297,8 @@ namespace instinctiv
 	// Initialize logging
 	void Instinctiv::initialize_logging()
 	{
-		auto& loggingSettings = config::theSettings.logging;
-
-		// Determine log file path
-		auto logFilePath = loggingSettings.logFilePath.get();
-		if (logFilePath.empty())
-		{
-			logFilePath = (m_appDataPath / "insti.log").string();
-			loggingSettings.logFilePath.set(logFilePath);
-		}
-
-		// Setup spdlog with file sink
-		try
-		{
-			auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFilePath, true);
-			auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-
-			std::vector<spdlog::sink_ptr> sinks{ console_sink, file_sink };
-			auto logger = std::make_shared<spdlog::logger>("insti", sinks.begin(), sinks.end());
-
-			// Set log level from config
-			const auto logLevel = loggingSettings.logLevel.get();
-			logger->set_level(spdlog::level::from_str(logLevel));
-
-			// Flush on every log message (important for debugging crashes/hangs)
-			logger->flush_on(spdlog::level::trace);
-
-			spdlog::set_default_logger(logger);
-			spdlog::info("Logging initialized - file: {}, level: {}", logFilePath, logLevel);
-		}
-		catch (const spdlog::spdlog_ex& ex)
-		{
-			// Fall back to console only
-			spdlog::error("Failed to create file logger: {}", ex.what());
-		}
+		// Use shared logging initialization from the library
+		insti::config::initialize_logging();
 	}
 
 
@@ -1600,7 +1568,7 @@ namespace instinctiv
 			if (accepted)
 			{
 				// Save the selection
-				config::theSettings.save(*m_pConfigBackend);
+				config::theSettings.save();
 			}
 			else if (cancelled)
 			{

@@ -28,26 +28,33 @@ namespace insti
 		PNQ_DECLARE_NON_COPYABLE(Orchestrator);
 
 		/// Backup blueprint to snapshot.
+		/// Runs: shutdown -> backup -> startup
 		/// @param bp Blueprint (must not be nullptr)
 		/// @param output_path Output snapshot file path
 		/// @param cb Callback for progress/errors (may be nullptr for silent operation)
+		/// @param force If true, also run force-only shutdown hooks (aggressive termination)
+		/// @param description Optional description for this snapshot (overrides project description)
 		/// @return true on success
-		bool backup(const Project* bp, std::string_view output_path, IActionCallback* cb);
+		bool backup(const Project* bp, std::string_view output_path, IActionCallback* cb, bool force = false, const std::string& description = {});
 
 		/// Restore from snapshot with pre-loaded blueprint (allows variable overrides via context).
+		/// Runs: restore -> startup
 		/// @param bp Blueprint (must not be nullptr)
 		/// @param archive_path Path to snapshot file
 		/// @param cb Callback for progress/errors (may be nullptr for silent operation)
 		/// @param simulate If true, log actions without performing them
+		/// @param force If true, also run force-only startup hooks
 		/// @return true on success
-		bool restore(const Instance* bp, std::string_view archive_path, IActionCallback* cb, bool simulate = false);
+		bool restore(const Instance* bp, std::string_view archive_path, IActionCallback* cb, bool simulate = false, bool force = false);
 
 		/// Clean resources defined in blueprint.
+		/// Runs: shutdown -> clean
 		/// @param bp Blueprint (must not be nullptr)
 		/// @param cb Callback for progress/errors (may be nullptr for silent operation)
 		/// @param simulate If true, log actions without performing them
+		/// @param force If true, also run force-only shutdown hooks (aggressive termination)
 		/// @return true on success
-		bool clean(const Blueprint* bp, IActionCallback* cb, bool simulate = false);
+		bool clean(const Blueprint* bp, IActionCallback* cb, bool simulate = false, bool force = false);
 
 		/// Verify blueprint against live system.
 		/// @param bp Blueprint (must not be nullptr)

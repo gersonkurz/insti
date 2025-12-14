@@ -238,22 +238,16 @@ bool SubstituteHook::execute(const std::unordered_map<std::string, std::string>&
     {
         bool ok = false;
 
-        switch (m_phase)
+        switch (m_direction)
         {
-        case Phase::PreBackup:
+        case Direction::Backup:
             // Replace values with placeholders
             ok = substitute_to_placeholders(file, variables);
             break;
 
-        case Phase::PostRestore:
+        case Direction::Restore:
             // Replace placeholders with values
             ok = substitute_from_placeholders(file, variables);
-            break;
-
-        default:
-            spdlog::warn("SubstituteHook: unexpected phase {} for file {}",
-                         static_cast<int>(m_phase), file);
-            ok = true; // Don't fail, just warn
             break;
         }
 

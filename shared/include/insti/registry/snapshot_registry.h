@@ -94,7 +94,7 @@ namespace insti
 
 
 		bool initialize_project_blueprint(const fs::directory_entry& dir_entry) const;
-		bool initialize_instance_blueprint(const fs::directory_entry& dir_entry, InstallStatus install_status) const;
+		bool initialize_instance_blueprint(const fs::directory_entry& dir_entry, InstallStatus default_status) const;
 	};
 
 } // namespace insti

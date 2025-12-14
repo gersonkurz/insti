@@ -205,7 +205,114 @@ void print_verbose(const std::string& msg)
         con::write_line(msg);
 }
 
-int cmd_backup(const std::string& blueprint_ref, const std::string& output_arg)
+// Helper to load blueprint from any reference (project or instance)
+insti::Blueprint* load_blueprint(const ResolvedRef& resolved)
+{
+    if (resolved.type == RefType::Instance)
+        return insti::Instance::load_from_archive(resolved.path);
+    else
+        return insti::Project::load_from_file(resolved.path);
+}
+
+int cmd_startup(const std::string& source_ref, bool force)
+{
+    auto resolved = resolve_reference(source_ref);
+    if (!resolved.ok())
+    {
+        print_error(resolved.error);
+        return 1;
+    }
+
+    auto* bp = load_blueprint(resolved);
+    if (!bp)
+    {
+        print_error("Failed to load blueprint: " + resolved.path);
+        return 1;
+    }
+
+    con::format_line("Starting: {} v{}", bp->project_name(), bp->project_version());
+
+    const auto& hooks = bp->startup_hooks();
+    if (hooks.empty())
+    {
+        con::write_line("No startup hooks defined.");
+        bp->release(REFCOUNT_DEBUG_ARGS);
+        return 0;
+    }
+
+    const auto& vars = bp->resolved_variables();
+    bool success = true;
+
+    for (auto* hook : hooks)
+    {
+        if (hook->is_force() && !force)
+            continue;
+
+        con::format_line("  Running: {}", hook->type_name());
+        if (!hook->execute(vars))
+        {
+            print_error("Hook failed: " + hook->type_name());
+            success = false;
+            break;
+        }
+    }
+
+    if (success)
+        con::write_line("Startup complete.");
+
+    bp->release(REFCOUNT_DEBUG_ARGS);
+    return success ? 0 : 1;
+}
+
+int cmd_shutdown(const std::string& source_ref, bool force)
+{
+    auto resolved = resolve_reference(source_ref);
+    if (!resolved.ok())
+    {
+        print_error(resolved.error);
+        return 1;
+    }
+
+    auto* bp = load_blueprint(resolved);
+    if (!bp)
+    {
+        print_error("Failed to load blueprint: " + resolved.path);
+        return 1;
+    }
+
+    con::format_line("Stopping: {} v{}", bp->project_name(), bp->project_version());
+
+    const auto& hooks = bp->shutdown_hooks();
+    if (hooks.empty())
+    {
+        con::write_line("No shutdown hooks defined.");
+        bp->release(REFCOUNT_DEBUG_ARGS);
+        return 0;
+    }
+
+    const auto& vars = bp->resolved_variables();
+    bool success = true;
+
+    for (auto* hook : hooks)
+    {
+        if (hook->is_force() && !force)
+            continue;
+
+        con::format_line("  Running: {}", hook->type_name());
+        if (!hook->execute(vars))
+        {
+            // Shutdown failures are warnings, not errors (app might not be running)
+            con::format_line("  Warning: {} failed (continuing)", hook->type_name());
+        }
+    }
+
+    con::write_line("Shutdown complete.");
+
+    bp->release(REFCOUNT_DEBUG_ARGS);
+    return 0; // Shutdown always succeeds (best effort)
+}
+
+int cmd_backup(const std::string& blueprint_ref, const std::string& output_arg, bool force, const std::string& description)
 {
     auto resolved = resolve_reference(blueprint_ref);
     if (!resolved.ok())
@@ -281,7 +388,7 @@ int cmd_backup(const std::string& blueprint_ref, const std::string& output_arg)
     ProgressBarCallback callback;
     insti::Orchestrator orc{&registry};
 
-    bool success = orc.backup(project, output_path, &callback);
+    bool success = orc.backup(project, output_path, &callback, force, description);
     callback.complete();
 
     if (success)
@@ -306,7 +413,7 @@ int cmd_backup(const std::string& blueprint_ref, const std::string& output_arg)
 }
 
 int cmd_restore(const std::string& snapshot_ref, const std::string& dest_override,
-                const std::vector<std::string>& var_overrides)
+                const std::vector<std::string>& var_overrides, bool force)
 {
     if (!dest_override.empty())
     {
@@ -362,7 +469,7 @@ int cmd_restore(const std::string& snapshot_ref, const std::string& dest_overrid
     ProgressBarCallback callback;
     insti::Orchestrator orc{&registry};
 
-    bool success = orc.restore(instance, resolved.path, &callback);
+    bool success = orc.restore(instance, resolved.path, &callback, false, force);
     callback.complete();
 
     if (success)
@@ -375,7 +482,7 @@ int cmd_restore(const std::string& snapshot_ref, const std::string& dest_overrid
     return success ? 0 : 1;
 }
 
-int cmd_clean(const std::string& source_ref)
+int cmd_clean(const std::string& source_ref, bool force)
 {
     auto resolved = resolve_reference(source_ref);
     if (!resolved.ok())
@@ -413,7 +520,7 @@ int cmd_clean(const std::string& source_ref)
     ProgressBarCallback callback;
     insti::Orchestrator orc{&registry};
 
-    bool success = orc.clean(bp, &callback);
+    bool success = orc.clean(bp, &callback, false, force);
     callback.complete();
 
     if (success)
@@ -570,44 +677,6 @@ int cmd_list_registry(const std::string& filter_project, bool xml_output)
         // === INSTANCE SNAPSHOTS TABLE ===
         if (!entries.empty())
         {
-            // Check which snapshots are "installed" (resources exist on system)
-            std::vector<bool> installed(entries.size(), false);
-            for (size_t i = 0; i < entries.size(); ++i)
-            {
-                insti::ZipSnapshotReader reader;
-                if (reader.open(entries[i]->m_snapshot_path))
-                {
-                    std::string blueprint_xml = reader.read_text("blueprint.xml");
-                    if (!blueprint_xml.empty())
-                    {
-                        auto* bp = insti::Blueprint::load_from_string(blueprint_xml);
-                        if (bp)
-                        {
-                            bool all_exist = true;
-                            for (const auto* action : bp->actions())
-                            {
-                                if (auto* copy_dir = dynamic_cast<const insti::CopyDirectoryAction*>(action))
-                                {
-                                    std::string path = bp->resolve(copy_dir->path());
-                                    if (!std::filesystem::exists(path))
-                                        all_exist = false;
-                                }
-                                else if (auto* reg = dynamic_cast<const insti::RegistryAction*>(action))
-                                {
-                                    std::string key_path = bp->resolve(reg->key());
-                                    pnq::regis3::key k{key_path};
-                                    if (!k.open_for_reading())
-                                        all_exist = false;
-                                }
-                                if (!all_exist) break;
-                            }
-                            installed[i] = all_exist;
-                            bp->release(REFCOUNT_DEBUG_ARGS);
-                        }
-                    }
-                }
-            }
-
             // Calculate column widths
             size_t w_idx = std::to_string(entries.size()).size() + 1;  // +1 for potential *
             w_idx = std::max(w_idx, size_t(2));
@@ -642,7 +711,8 @@ int cmd_list_registry(const std::string& filter_project, bool xml_output)
             for (size_t i = 0; i < entries.size(); ++i)
             {
                 const auto* e = entries[i];
-                std::string idx_str = std::to_string(i + 1) + (installed[i] ? "*" : "");
+                bool is_installed = (e->m_install_status == insti::InstallStatus::Installed);
+                std::string idx_str = std::to_string(i + 1) + (is_installed ? "*" : "");
                 con::format("{:>{}}  ", idx_str, w_idx);
                 con::format("{:<{}}  ", e->project_name(), w_name);
                 con::format("{:<{}}  ", e->project_version(), w_version);
@@ -776,8 +846,9 @@ int cmd_verify(const std::string& source_ref)
 
 int main(int argc, char* argv[])
 {
-    // Default to warn level to suppress info messages; --verbose lowers to info
-    spdlog::set_level(spdlog::level::warn);
+    // Load settings and initialize logging
+    insti::config::theSettings.load();
+    insti::config::initialize_logging();
 
     argparse::ArgumentParser program("insti", insti::version());
     program.add_description("Application state snapshot and restore utility");
@@ -790,18 +861,25 @@ int main(int argc, char* argv[])
 
     // Subcommands
     argparse::ArgumentParser backup_cmd("backup");
-    backup_cmd.add_description("Create a snapshot from blueprint");
+    backup_cmd.add_description("Create a snapshot from blueprint (shutdown -> backup -> startup)");
     backup_cmd.add_argument("blueprint")
-        .help("Path to blueprint XML file");
+        .help("Path to blueprint XML file, or A/B/C for project, or 1/2/3 for instance");
     backup_cmd.add_argument("output")
         .help("Output snapshot file (.zip), or omit for auto-naming")
         .nargs(argparse::nargs_pattern::optional)
         .default_value(std::string{});
+    backup_cmd.add_argument("-f", "--force")
+        .help("Run force-only hooks (aggressive termination)")
+        .default_value(false)
+        .implicit_value(true);
+    backup_cmd.add_argument("-d", "--description")
+        .help("Description for this snapshot (overrides blueprint)")
+        .default_value(std::string{});
 
     argparse::ArgumentParser restore_cmd("restore");
-    restore_cmd.add_description("Restore from a snapshot");
+    restore_cmd.add_description("Restore from a snapshot (restore -> startup)");
     restore_cmd.add_argument("snapshot")
-        .help("Path to .zip, or reference: project, filename");
+        .help("Path to .zip, or 1/2/3 for instance");
     restore_cmd.add_argument("--dest")
         .help("Override destination path")
         .default_value(std::string{});
@@ -809,6 +887,10 @@ int main(int argc, char* argv[])
         .help("Override variable: NAME=VALUE (repeatable)")
         .append()
         .default_value(std::vector<std::string>{});
+    restore_cmd.add_argument("-f", "--force")
+        .help("Run force-only hooks")
+        .default_value(false)
+        .implicit_value(true);
 
     argparse::ArgumentParser list_cmd("list");
     list_cmd.add_description("List registry snapshots or archive contents");
@@ -825,19 +907,43 @@ int main(int argc, char* argv[])
         .implicit_value(true);
 
     argparse::ArgumentParser clean_cmd("clean");
-    clean_cmd.add_description("Remove resources defined in blueprint or snapshot");
+    clean_cmd.add_description("Remove resources defined in blueprint or snapshot (shutdown -> clean)");
     clean_cmd.add_argument("source")
-        .help("Path to blueprint XML or snapshot (.zip)");
+        .help("Path to blueprint XML or snapshot (.zip), or A/B/C or 1/2/3");
+    clean_cmd.add_argument("-f", "--force")
+        .help("Run force-only shutdown hooks (aggressive termination)")
+        .default_value(false)
+        .implicit_value(true);
 
     argparse::ArgumentParser verify_cmd("verify");
     verify_cmd.add_description("Verify resources against live system");
     verify_cmd.add_argument("source")
-        .help("Path to blueprint XML or snapshot (.zip)");
+        .help("Path to blueprint XML or snapshot (.zip), or A/B/C or 1/2/3");
+
+    argparse::ArgumentParser startup_cmd("startup");
+    startup_cmd.add_description("Run startup hooks (start the application)");
+    startup_cmd.add_argument("source")
+        .help("Path to blueprint XML or snapshot (.zip), or A/B/C or 1/2/3");
+    startup_cmd.add_argument("-f", "--force")
+        .help("Run force-only hooks")
+        .default_value(false)
+        .implicit_value(true);
+
+    argparse::ArgumentParser shutdown_cmd("shutdown");
+    shutdown_cmd.add_description("Run shutdown hooks (stop the application)");
+    shutdown_cmd.add_argument("source")
+        .help("Path to blueprint XML or snapshot (.zip), or A/B/C or 1/2/3");
+    shutdown_cmd.add_argument("-f", "--force")
+        .help("Run force-only hooks (aggressive termination)")
+        .default_value(false)
+        .implicit_value(true);
 
     program.add_subparser(backup_cmd);
     program.add_subparser(restore_cmd);
     program.add_subparser(clean_cmd);
     program.add_subparser(verify_cmd);
+    program.add_subparser(startup_cmd);
+    program.add_subparser(shutdown_cmd);
     program.add_subparser(list_cmd);
 
     try
@@ -854,7 +960,7 @@ int main(int argc, char* argv[])
 
     g_verbose = program.get<bool>("--verbose");
     if (g_verbose)
-        spdlog::set_level(spdlog::level::info);
+        spdlog::set_level(spdlog::level::debug);  // Override config level when verbose
 
     // Print banner
     con::format_line("insti v{}", insti::version());
@@ -862,18 +968,30 @@ int main(int argc, char* argv[])
 
     if (program.is_subcommand_used("backup"))
         return cmd_backup(backup_cmd.get<std::string>("blueprint"),
-                         backup_cmd.get<std::string>("output"));
+                         backup_cmd.get<std::string>("output"),
+                         backup_cmd.get<bool>("--force"),
+                         backup_cmd.get<std::string>("--description"));
 
     if (program.is_subcommand_used("restore"))
         return cmd_restore(restore_cmd.get<std::string>("snapshot"),
                           restore_cmd.get<std::string>("--dest"),
-                          restore_cmd.get<std::vector<std::string>>("--var"));
+                          restore_cmd.get<std::vector<std::string>>("--var"),
+                          restore_cmd.get<bool>("--force"));
 
     if (program.is_subcommand_used("clean"))
-        return cmd_clean(clean_cmd.get<std::string>("source"));
+        return cmd_clean(clean_cmd.get<std::string>("source"),
+                        clean_cmd.get<bool>("--force"));
 
     if (program.is_subcommand_used("verify"))
         return cmd_verify(verify_cmd.get<std::string>("source"));
+
+    if (program.is_subcommand_used("startup"))
+        return cmd_startup(startup_cmd.get<std::string>("source"),
+                          startup_cmd.get<bool>("--force"));
+
+    if (program.is_subcommand_used("shutdown"))
+        return cmd_shutdown(shutdown_cmd.get<std::string>("source"),
+                           shutdown_cmd.get<bool>("--force"));
 
     if (program.is_subcommand_used("list"))
         return cmd_list(list_cmd.get<std::string>("snapshot"),

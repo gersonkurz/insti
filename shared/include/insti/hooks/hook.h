@@ -40,6 +40,12 @@ public:
     /// Set whether this hook is standalone.
     void set_standalone(bool standalone) { m_standalone = standalone; }
 
+    /// Check if this hook requires --force flag (for aggressive shutdown actions).
+    bool is_force() const { return m_force; }
+
+    /// Set whether this hook requires --force flag.
+    void set_force(bool force) { m_force = force; }
+
     /// Execute the hook.
     /// @param variables Resolved variables for substitution
     /// @return true on success
@@ -58,6 +64,7 @@ private:
     const std::string m_type_name;
     std::string m_name;         ///< Display name for UI (optional)
     bool m_standalone = false;  ///< If true, hook appears as button in UI
+    bool m_force = false;       ///< If true, hook only runs with --force flag
 };
 
 } // namespace insti

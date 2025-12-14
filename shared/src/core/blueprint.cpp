@@ -13,13 +13,15 @@ Blueprint::~Blueprint()
 std::vector<IHook*> Blueprint::standalone_hooks() const
 {
     std::vector<IHook*> result;
-    for (const auto& phase_hooks : m_hooks)
+    for (auto* hook : m_startup_hooks)
     {
-        for (auto* hook : phase_hooks)
-        {
-            if (hook->is_standalone())
-                result.push_back(hook);
-        }
+        if (hook->is_standalone())
+            result.push_back(hook);
+    }
+    for (auto* hook : m_shutdown_hooks)
+    {
+        if (hook->is_standalone())
+            result.push_back(hook);
     }
     return result;
 }
@@ -456,31 +458,17 @@ bool Blueprint::parse_xml(std::string_view xml)
         }
     }
 
-    // Hooks
-    if (auto hooks_node = root.child("hooks"))
+    // Helper lambda to parse hooks from a lifecycle element
+    auto parse_lifecycle_hooks = [this](pugi::xml_node parent, pnq::RefCountedVector<IHook*>& target) -> bool
     {
-        for (auto node : hooks_node.children())
+        for (auto node : parent.children())
         {
             std::string_view node_name = node.name();
 
-            // Parse phase (required for all hooks)
-            std::string phase_str = node.attribute("phase").as_string();
-            if (phase_str.empty())
-            {
-                spdlog::error("{} hook missing 'phase' attribute", node_name);
-                return false;
-            }
-
-            Phase phase;
-            if (!parse_phase(phase_str, phase))
-            {
-                spdlog::error("Invalid phase '{}' for {} hook", phase_str, node_name);
-                return false;
-            }
-
-            // Parse common optional attributes (name, standalone)
+            // Parse common optional attributes
             std::string hook_name = node.attribute("name").as_string();
             bool standalone = node.attribute("standalone").as_bool(false);
+            bool force = node.attribute("force").as_bool(false);
 
             IHook* hook = nullptr;
 
@@ -525,52 +513,36 @@ bool Blueprint::parse_xml(std::string_view xml)
                 if (hook_name.empty() && standalone)
                     hook_name = std::filesystem::path(path).stem().string();
             }
-            else if (node_name == "substitute")
-            {
-                std::string file = node.attribute("file").as_string();
-                if (file.empty())
-                {
-                    spdlog::error("substitute hook missing 'file' attribute");
-                    return false;
-                }
-
-                auto* sub_hook = new SubstituteHook(std::move(file));
-                sub_hook->set_phase(phase);
-                hook = sub_hook;
-            }
-            else if (node_name == "sql")
-            {
-                std::string file = node.attribute("file").as_string();
-                std::string query = node.attribute("query").as_string();
-                if (file.empty())
-                {
-                    spdlog::error("sql hook missing 'file' attribute");
-                    return false;
-                }
-                if (query.empty())
-                {
-                    spdlog::error("sql hook missing 'query' attribute");
-                    return false;
-                }
-
-                auto* sql_hook = new SqlHook(std::move(file), std::move(query));
-                sql_hook->set_phase(phase);
-                hook = sql_hook;
-            }
             else
             {
                 spdlog::warn("Unknown hook type: {}", node_name);
             }
 
-            // Set common attributes and add to phase hooks
+            // Set common attributes and add to target
             if (hook)
             {
                 if (!hook_name.empty())
                     hook->set_name(std::move(hook_name));
                 hook->set_standalone(standalone);
-                m_hooks[static_cast<size_t>(phase)].push_back(hook);
+                hook->set_force(force);
+                target.push_back(hook);
             }
         }
+        return true;
+    };
+
+    // Startup hooks
+    if (auto startup_node = root.child("startup"))
+    {
+        if (!parse_lifecycle_hooks(startup_node, m_startup_hooks))
+            return false;
+    }
+
+    // Shutdown hooks
+    if (auto shutdown_node = root.child("shutdown"))
+    {
+        if (!parse_lifecycle_hooks(shutdown_node, m_shutdown_hooks))
+            return false;
     }
 
     return true;
@@ -634,72 +606,111 @@ std::string Blueprint::to_xml() const
         }
     }
 
-    // Hooks
-    bool has_hooks = false;
-    for (const auto& phase_hooks : m_hooks)
+    // Helper lambda to write hooks to a lifecycle element
+    auto write_lifecycle_hooks = [](pugi::xml_node parent, const pnq::RefCountedVector<IHook*>& hooks)
     {
-        if (!phase_hooks.empty())
+        for (const auto* hook : hooks)
         {
-            has_hooks = true;
-            break;
-        }
-    }
+            pugi::xml_node node;
 
-    if (has_hooks)
-    {
-        auto hooks_node = root.append_child("hooks");
-        for (size_t i = 0; i < 6; ++i)
-        {
-            Phase phase = static_cast<Phase>(i);
-            for (const auto* hook : m_hooks[i])
+            if (auto* kill = dynamic_cast<const KillProcessHook*>(hook))
             {
-                pugi::xml_node node;
+                node = parent.append_child("kill");
+                node.append_attribute("process") = kill->process_name().c_str();
+                if (kill->timeout_ms() != 5000)
+                    node.append_attribute("timeout") = kill->timeout_ms();
+            }
+            else if (auto* run = dynamic_cast<const RunProcessHook*>(hook))
+            {
+                node = parent.append_child("run");
+                node.append_attribute("path") = run->path().c_str();
+                if (!run->wait())
+                    node.append_attribute("wait") = false;
+                if (run->ignore_exit_code())
+                    node.append_attribute("ignore-exit-code") = true;
 
-                if (auto* kill = dynamic_cast<const KillProcessHook*>(hook))
+                for (const auto& arg : run->args())
                 {
-                    node = hooks_node.append_child("kill");
-                    node.append_attribute("phase") = phase_to_string(phase);
-                    node.append_attribute("process") = kill->process_name().c_str();
-                    if (kill->timeout_ms() != 5000)
-                        node.append_attribute("timeout") = kill->timeout_ms();
+                    node.append_child("arg").text().set(arg.c_str());
                 }
-                else if (auto* run = dynamic_cast<const RunProcessHook*>(hook))
-                {
-                    node = hooks_node.append_child("run");
-                    node.append_attribute("phase") = phase_to_string(phase);
-                    node.append_attribute("path") = run->path().c_str();
-                    if (!run->wait())
-                        node.append_attribute("wait") = false;
-                    if (run->ignore_exit_code())
-                        node.append_attribute("ignore-exit-code") = true;
+            }
 
-                    for (const auto& arg : run->args())
-                    {
-                        node.append_child("arg").text().set(arg.c_str());
-                    }
-                }
-                else if (auto* sub = dynamic_cast<const SubstituteHook*>(hook))
-                {
-                    node = hooks_node.append_child("substitute");
-                    node.append_attribute("phase") = phase_to_string(phase);
-                    node.append_attribute("file") = sub->file_pattern().c_str();
-                }
-                else if (auto* sql = dynamic_cast<const SqlHook*>(hook))
-                {
-                    node = hooks_node.append_child("sql");
-                    node.append_attribute("phase") = phase_to_string(phase);
-                    node.append_attribute("file") = sql->file_path().c_str();
-                    node.append_attribute("query") = sql->query().c_str();
-                }
-
-                // Write common optional attributes
-                if (node && !hook->name().empty())
+            // Write common optional attributes
+            if (node)
+            {
+                if (!hook->name().empty())
                     node.append_attribute("name") = hook->name().c_str();
-                if (node && hook->is_standalone())
+                if (hook->is_standalone())
                     node.append_attribute("standalone") = true;
+                if (hook->is_force())
+                    node.append_attribute("force") = true;
             }
         }
+    };
+
+    // Startup hooks
+    if (!m_startup_hooks.empty())
+    {
+        auto startup_node = root.append_child("startup");
+        write_lifecycle_hooks(startup_node, m_startup_hooks);
     }
+
+    // Shutdown hooks
+    if (!m_shutdown_hooks.empty())
+    {
+        auto shutdown_node = root.append_child("shutdown");
+        write_lifecycle_hooks(shutdown_node, m_shutdown_hooks);
+    }
+
+    std::ostringstream oss;
+    doc.save(oss, "    ");
+    return oss.str();
+}
+
+std::string Blueprint::to_instance_xml(
+    std::chrono::system_clock::time_point timestamp,
+    const std::string& machine,
+    const std::string& user,
+    const std::string& description) const
+{
+    // Get base XML
+    std::string base_xml = to_xml();
+
+    // Parse it to insert instance metadata
+    pugi::xml_document doc;
+    doc.load_string(base_xml.c_str());
+
+    auto root = doc.child("blueprint");
+    if (!root)
+        return base_xml;
+
+    // Format timestamp
+    auto time_t = std::chrono::system_clock::to_time_t(timestamp);
+    std::tm tm{};
+    localtime_s(&tm, &time_t);
+    std::ostringstream ts_oss;
+    ts_oss << std::put_time(&tm, "%Y.%m.%d-%H:%M:%S");
+    std::string timestamp_str = ts_oss.str();
+
+    // Insert <instance> after <description> (or as first child if no description)
+    pugi::xml_node instance_node;
+    if (auto desc = root.child("description"))
+        instance_node = root.insert_child_after("instance", desc);
+    else
+        instance_node = root.prepend_child("instance");
+
+    // Add attributes
+    instance_node.append_attribute("timestamp") = timestamp_str.c_str();
+
+    if (!machine.empty())
+        instance_node.append_attribute("machine") = machine.c_str();
+
+    if (!user.empty())
+        instance_node.append_attribute("user") = user.c_str();
+
+    // Add instance description as child element if provided
+    if (!description.empty())
+        instance_node.append_child("description").text().set(description.c_str());
 
     std::ostringstream oss;
     doc.save(oss, "    ");

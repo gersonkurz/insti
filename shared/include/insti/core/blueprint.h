@@ -8,9 +8,9 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <chrono>
 #include <pnq/pnq.h>
 #include <pnq/ref_counted.h>
-#include <insti/core/phase.h>
 #include <insti/actions/action.h>
 #include <insti/hooks/hook.h>
 
@@ -62,6 +62,18 @@ namespace insti
         /// @return XML representation of the blueprint
         virtual std::string to_xml() const;
 
+        /// Serialize blueprint to XML with instance metadata (for snapshots).
+        /// @param timestamp Backup timestamp
+        /// @param machine Machine name where backup was created
+        /// @param user User who created the backup
+        /// @param description Optional description for this snapshot
+        /// @return XML representation including <instance> element
+        std::string to_instance_xml(
+            std::chrono::system_clock::time_point timestamp,
+            const std::string& machine,
+            const std::string& user,
+            const std::string& description = {}) const;
+
         /// @}
 
         /// @name Project Metadata Accessors
@@ -91,13 +103,15 @@ namespace insti
         /// @return Reference to action vector (valid while blueprint alive)
         const pnq::RefCountedVector<IAction *> &actions() const { return m_actions; }
 
-        /// Get hooks for a specific phase.
-        /// @param phase The execution phase
-        /// @return Reference to hook vector for that phase (valid while blueprint alive)
-        const pnq::RefCountedVector<IHook *> &hooks(Phase phase) const { return m_hooks[static_cast<size_t>(phase)]; }
+        /// Get startup hooks (executed after restore, after backup).
+        /// @return Reference to hook vector (valid while blueprint alive)
+        const pnq::RefCountedVector<IHook *> &startup_hooks() const { return m_startup_hooks; }
+
+        /// Get shutdown hooks (executed before backup, before clean).
+        /// @return Reference to hook vector (valid while blueprint alive)
+        const pnq::RefCountedVector<IHook *> &shutdown_hooks() const { return m_shutdown_hooks; }
 
         /// Get all standalone hooks (hooks that can be triggered manually from UI).
-        /// Iterates all phases and returns hooks where is_standalone() is true.
         /// @return Vector of standalone hook pointers (not ref-counted, valid while blueprint alive)
         std::vector<IHook *> standalone_hooks() const;
 
@@ -161,7 +175,8 @@ namespace insti
         const std::string &get_var(std::string_view name) const;
 
         pnq::RefCountedVector<IAction *> m_actions;
-        pnq::RefCountedVector<IHook *> m_hooks[6]; ///< Hooks per phase (6 phases)
+        pnq::RefCountedVector<IHook *> m_startup_hooks;   ///< Hooks for app startup
+        pnq::RefCountedVector<IHook *> m_shutdown_hooks;  ///< Hooks for app shutdown
 
         std::unordered_map<std::string, std::string> m_user_variables;     ///< Raw user-defined variables
         std::unordered_map<std::string, std::string> m_builtin_variables;  ///< Built-in variables from system

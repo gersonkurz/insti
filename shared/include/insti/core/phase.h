@@ -5,34 +5,33 @@
 namespace insti
 {
 
-/// Execution phases for hooks.
-enum class Phase
+/// Lifecycle stages for hooks.
+enum class Lifecycle
 {
-    PreBackup,
-    PostBackup,
-    PreRestore,
-    PostRestore,
-    PreClean,
-    PostClean
+    Startup,
+    Shutdown
 };
 
-/// Convert phase to string.
-inline const char* phase_to_string(Phase phase)
+/// Convert lifecycle to string.
+inline const char* lifecycle_to_string(Lifecycle lc)
 {
-    switch (phase)
+    switch (lc)
     {
-        case Phase::PreBackup:   return "PreBackup";
-        case Phase::PostBackup:  return "PostBackup";
-        case Phase::PreRestore:  return "PreRestore";
-        case Phase::PostRestore: return "PostRestore";
-        case Phase::PreClean:    return "PreClean";
-        case Phase::PostClean:   return "PostClean";
+        case Lifecycle::Startup:  return "startup";
+        case Lifecycle::Shutdown: return "shutdown";
     }
-    return "Unknown";
+    return "unknown";
 }
 
-/// Parse phase from string (case-insensitive).
-/// @return true if valid, false otherwise
-bool parse_phase(std::string_view str, Phase& out_phase);
+/// Direction of data flow for transformation hooks.
+/// Used by substitute/sql hooks to know whether to resolve or unresolve values.
+enum class Direction
+{
+    Backup,  ///< Values -> Placeholders (unresolve)
+    Restore  ///< Placeholders -> Values (resolve)
+};
+
+// Legacy alias for code still using Phase
+using Phase = Direction;
 
 } // namespace insti

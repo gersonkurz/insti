@@ -23,7 +23,7 @@ bool BlueprintCache::open(std::string_view path)
     }
 
     ensure_schema();
-    spdlog::info("BlueprintCache: opened at {}", path);
+    spdlog::info("BlueprintCache: opened database at '{}'", path);
     return true;
 }
 
@@ -55,7 +55,10 @@ bool BlueprintCache::is_open() const
 std::optional<std::string> BlueprintCache::get(std::string_view path, int64_t mtime, int64_t size, InstallStatus& install_status)
 {
     if (!is_open())
+    {
+        spdlog::warn("BlueprintCache::get: cache not open!");
         return std::nullopt;
+    }
 
     std::string normalized = normalize_path(path);
 
@@ -63,19 +66,29 @@ std::optional<std::string> BlueprintCache::get(std::string_view path, int64_t mt
     stmt.bind(normalized);
 
     if (!stmt.execute() || stmt.is_empty())
+    {
+        spdlog::info("BlueprintCache::get: no entry for '{}'", normalized);
         return std::nullopt;
+    }
 
     int64_t cached_mtime = stmt.get_int64(0);
     int64_t cached_size = stmt.get_int64(1);
+    std::string cached_status = stmt.get_text(3);
 
-    // Check if cache is stale
+    spdlog::info("BlueprintCache::get: found '{}' with status='{}' (mtime match={}, size match={})",
+                 normalized, cached_status, cached_mtime == mtime, cached_size == size);
+
+    // Check if cache is stale (mtime/size changed)
+    // But PRESERVE the install_status even if stale - the status is independent of file content
+    install_status = install_status_from_string(cached_status);
+
     if (cached_mtime != mtime || cached_size != size)
     {
-        spdlog::debug("BlueprintCache: stale entry for {} (mtime: {} vs {}, size: {} vs {})",
-                      path, cached_mtime, mtime, cached_size, size);
+        spdlog::debug("BlueprintCache: stale XML for {} (mtime: {} vs {}, size: {} vs {}), but preserving status={}",
+                      path, cached_mtime, mtime, cached_size, size, cached_status);
         return std::nullopt;
     }
-	install_status = install_status_from_string(stmt.get_text(3));
+
     return stmt.get_text(2);
 }
 
@@ -104,10 +117,34 @@ bool BlueprintCache::update_install_status(std::string_view path, InstallStatus 
     const auto normalized{ normalize_path(path) };
 
     pnq::sqlite::Statement stmt{ m_db,
-        "UPDATE blueprints SET install_status = ? WHERE PATH = ?" };
+        "UPDATE blueprints SET install_status = ? WHERE path = ?" };
     stmt.bind(as_string(install_status));
     stmt.bind(normalized);
     return stmt.execute();
+}
+
+int BlueprintCache::mark_all_instances_not_installed(std::string_view project_name)
+{
+    if (!is_open())
+        return 0;
+
+    // Only update .zip files (instances), never .xml files (projects)
+    // Use INSTR for more reliable matching - looks for name="ProjectName" in XML
+    std::string search_str = std::format("name=\"{}\"", project_name);
+
+    pnq::sqlite::Statement stmt{ m_db,
+        "UPDATE blueprints SET install_status = ? WHERE path LIKE '%.zip' AND INSTR(xml, ?) > 0" };
+    stmt.bind(as_string(InstallStatus::NotInstalled));
+    stmt.bind(search_str);
+
+    if (!stmt.execute())
+    {
+        spdlog::error("BlueprintCache: failed to mark instances of '{}' as NotInstalled", project_name);
+        return 0;
+    }
+
+    spdlog::info("BlueprintCache: marked instances of '{}' as NotInstalled", project_name);
+    return 1;
 }
 
 void BlueprintCache::remove(std::string_view path)

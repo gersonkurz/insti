@@ -14,9 +14,9 @@ namespace insti
 
 /// Hook to substitute variables in text files.
 ///
-/// Direction depends on execution phase:
-/// - PreBackup: Replace known values with ${VARNAME} placeholders
-/// - PostRestore: Replace ${VARNAME} placeholders with resolved values
+/// Direction of substitution:
+/// - Backup: Replace known values with ${VARNAME} placeholders
+/// - Restore: Replace ${VARNAME} placeholders with resolved values
 ///
 /// File pattern supports glob syntax and variable substitution.
 class SubstituteHook : public IHook
@@ -32,12 +32,12 @@ public:
         , m_file_pattern{std::move(file_pattern)}
     {}
 
-    /// Set the execution phase (called by orchestrator before execute).
-    void set_phase(Phase phase) { m_phase = phase; }
+    /// Set the direction (called by orchestrator before execute).
+    void set_direction(Direction dir) { m_direction = dir; }
 
     /// @name Accessors
     /// @{
-    Phase phase() const { return m_phase; }
+    Direction direction() const { return m_direction; }
     const std::string& file_pattern() const { return m_file_pattern; }
     /// @}
 
@@ -53,7 +53,7 @@ private:
     std::vector<std::string> expand_glob(const std::string& resolved_pattern) const;
 
     const std::string m_file_pattern;
-    Phase m_phase{Phase::PreBackup}; ///< Mutable - set by orchestrator before execute
+    Direction m_direction{Direction::Backup}; ///< Set by orchestrator before execute
 };
 
 } // namespace insti

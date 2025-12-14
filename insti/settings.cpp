@@ -1,13 +1,4 @@
 #include "pch.h"
 #include "settings.h"
 
-namespace insti
-{
-namespace config
-{
-
-// Global settings instance
-Settings theSettings;
-
-} // namespace config
-} // namespace insti
+// theSettings is now defined in shared library (shared/src/config/settings.cpp)
