@@ -313,14 +313,18 @@ namespace insti
 			return success;
 		}
 
-		std::vector<VerifyResult> Orchestrator::verify(const Blueprint* bp, IActionCallback* cb)
+		std::vector<VerifyResult> Orchestrator::verify(const Blueprint* bp, IActionCallback* cb, SnapshotReader* reader)
 		{
 			std::vector<VerifyResult> results;
 
 			if (!bp)
 				return results;
 
-			auto* ctx = ActionContext::for_clean(bp, cb);
+			// Use restore context if reader is available (instance verification)
+			// Otherwise use clean context (project verification - just checks existence)
+			ActionContext* ctx = reader
+				? ActionContext::for_restore(bp, reader, cb)
+				: ActionContext::for_clean(bp, cb);
 
 			for (const auto* action : bp->actions())
 			{

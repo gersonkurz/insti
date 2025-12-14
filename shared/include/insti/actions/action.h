@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <string_view>
 
 namespace insti
 {
@@ -24,6 +25,20 @@ namespace insti
 
         Status status = Status::Missing;
         std::string detail; // Human-readable explanation
+
+        // Detailed counts for file-level verification (CopyDirectoryAction)
+        // These are only populated when verifying against an instance (snapshot)
+        int file_match_count = 0;
+        int file_mismatch_count = 0;
+        int file_missing_count = 0;  // In snapshot but not on filesystem
+        int file_extra_count = 0;    // On filesystem but not in snapshot
+
+        /// List of mismatched files (path relative to archive prefix)
+        std::vector<std::string> mismatched_files;
+        /// List of files in snapshot but not on filesystem
+        std::vector<std::string> missing_files;
+        /// List of files on filesystem but not in snapshot
+        std::vector<std::string> extra_files;
     };
 
     /// Abstract base class for all actions (ref-counted)

@@ -5,6 +5,9 @@
 #include <insti/core/blueprint.h>
 #include <insti/snapshot/reader.h>
 #include <insti/snapshot/writer.h>
+#include <fstream>
+#include <unordered_set>
+#include <unordered_map>
 
 namespace insti
 {
@@ -873,37 +876,219 @@ namespace insti
         return true;
     }
 
+    namespace
+    {
+        /// Compare a file on disk with a file in the archive
+        /// @return true if contents match exactly, false otherwise
+        bool compare_file_contents(const std::filesystem::path& disk_path,
+                                   const std::string& archive_path,
+                                   SnapshotReader* reader)
+        {
+            // Read archive file
+            auto archive_data = reader->read_binary(archive_path);
+            if (archive_data.empty())
+            {
+                // Could be empty file - check if it exists
+                if (!reader->exists(archive_path))
+                    return false;
+            }
+
+            // Read disk file
+            std::error_code ec;
+            auto file_size = std::filesystem::file_size(disk_path, ec);
+            if (ec)
+                return false;
+
+            // Quick size check
+            if (file_size != archive_data.size())
+                return false;
+
+            // Read and compare
+            std::ifstream file(disk_path, std::ios::binary);
+            if (!file)
+                return false;
+
+            std::vector<uint8_t> disk_data(static_cast<size_t>(file_size));
+            if (file_size > 0)
+            {
+                file.read(reinterpret_cast<char*>(disk_data.data()), static_cast<std::streamsize>(file_size));
+                if (!file)
+                    return false;
+            }
+
+            return disk_data == archive_data;
+        }
+    } // anonymous namespace
+
     VerifyResult CopyDirectoryAction::verify(ActionContext *ctx) const
     {
         // Resolve path variables
         const std::string resolved_path = ctx->blueprint()->resolve(m_path);
+        VerifyResult result;
 
         // Check if directory exists on system
         bool exists_on_system = pnq::directory::exists(resolved_path);
 
-        // Check if exists in snapshot (if reader available)
-        bool exists_in_snapshot = false;
-        if (ctx->reader())
-            exists_in_snapshot = ctx->reader()->exists(m_archive_path);
+        // If no reader available, just check top-level existence (project verification)
+        if (!ctx->reader())
+        {
+            if (!exists_on_system)
+            {
+                result.status = VerifyResult::Status::Missing;
+                result.detail = "Directory not found";
+            }
+            else
+            {
+                result.status = VerifyResult::Status::Match;
+                result.detail = "Directory exists";
+            }
+            return result;
+        }
+
+        // Reader available - do file-level comparison (instance verification)
+        auto* reader = ctx->reader();
+
+        // Check if exists in snapshot
+        bool exists_in_snapshot = reader->exists(m_archive_path);
 
         if (!exists_on_system && !exists_in_snapshot)
         {
-            return {VerifyResult::Status::Missing, "Directory not found on system or in snapshot"};
-        }
-
-        if (exists_on_system && !exists_in_snapshot && ctx->reader())
-        {
-            return {VerifyResult::Status::Extra, "Directory exists on system but not in snapshot"};
+            result.status = VerifyResult::Status::Missing;
+            result.detail = "Directory not found on system or in snapshot";
+            return result;
         }
 
         if (!exists_on_system && exists_in_snapshot)
         {
-            return {VerifyResult::Status::Missing, "Directory exists in snapshot but not on system"};
+            result.status = VerifyResult::Status::Missing;
+            result.detail = "Directory exists in snapshot but not on system";
+            return result;
         }
 
-        // Both exist - for now just report match
-        // TODO: Could compare file counts, sizes, timestamps
-        return {VerifyResult::Status::Match, "Directory exists"};
+        // Get archive entries under this prefix
+        auto archive_entries = collect_archive_entries(m_archive_path, ctx);
+
+        // Build set of archive files (normalized to forward slashes for comparison)
+        std::unordered_set<std::string> archive_file_set;
+        for (const auto& rel : archive_entries.files)
+        {
+            archive_file_set.insert(rel);
+        }
+
+        // Collect filesystem files
+        std::filesystem::path base{resolved_path};
+        std::error_code ec;
+        std::unordered_set<std::string> fs_file_set;
+        std::unordered_map<std::string, std::filesystem::path> fs_file_paths;
+
+        if (exists_on_system)
+        {
+            auto iterator = m_recursive
+                ? std::filesystem::recursive_directory_iterator(base, ec)
+                : std::filesystem::recursive_directory_iterator(base, std::filesystem::directory_options::none, ec);
+
+            if (!ec)
+            {
+                for (const auto& entry : iterator)
+                {
+                    if (entry.is_regular_file())
+                    {
+                        // Skip blueprint.xml
+                        std::string filename = entry.path().filename().string();
+                        if (pnq::string::equals_nocase(filename, "blueprint.xml"))
+                            continue;
+
+                        // Apply filters
+                        if (!matches_filters(filename))
+                            continue;
+
+                        // Compute relative path with forward slashes
+                        auto rel = std::filesystem::relative(entry.path(), base, ec);
+                        if (ec)
+                            continue;
+
+                        std::string rel_str = rel.string();
+                        std::replace(rel_str.begin(), rel_str.end(), '\\', '/');
+
+                        fs_file_set.insert(rel_str);
+                        fs_file_paths[rel_str] = entry.path();
+                    }
+                }
+            }
+        }
+
+        // Normalize archive prefix
+        std::string prefix = m_archive_path;
+        if (!prefix.empty() && prefix.back() == '/')
+            prefix.pop_back();
+
+        // Compare: iterate through archive files
+        for (const auto& rel_file : archive_entries.files)
+        {
+            auto fs_it = fs_file_set.find(rel_file);
+            if (fs_it == fs_file_set.end())
+            {
+                // In snapshot but not on filesystem
+                result.missing_files.push_back(rel_file);
+                result.file_missing_count++;
+            }
+            else
+            {
+                // Both exist - compare contents
+                std::string archive_full_path = prefix + "/" + rel_file;
+                const auto& disk_path = fs_file_paths[rel_file];
+
+                if (compare_file_contents(disk_path, archive_full_path, reader))
+                {
+                    result.file_match_count++;
+                }
+                else
+                {
+                    result.mismatched_files.push_back(rel_file);
+                    result.file_mismatch_count++;
+                }
+
+                // Remove from fs_file_set so we know what's left (extras)
+                fs_file_set.erase(fs_it);
+            }
+        }
+
+        // Remaining files in fs_file_set are on filesystem but not in snapshot
+        for (const auto& rel_file : fs_file_set)
+        {
+            result.extra_files.push_back(rel_file);
+            result.file_extra_count++;
+        }
+
+        // Determine overall status
+        int total_archive = static_cast<int>(archive_entries.files.size());
+
+        if (result.file_match_count == total_archive && result.file_extra_count == 0)
+        {
+            result.status = VerifyResult::Status::Match;
+            result.detail = std::format("{} files verified", result.file_match_count);
+        }
+        else if (result.file_match_count == 0 && total_archive > 0)
+        {
+            result.status = VerifyResult::Status::Missing;
+            result.detail = std::format("{} files missing", result.file_missing_count);
+        }
+        else
+        {
+            result.status = VerifyResult::Status::Mismatch;
+            std::vector<std::string> parts;
+            if (result.file_match_count > 0)
+                parts.push_back(std::format("{} match", result.file_match_count));
+            if (result.file_mismatch_count > 0)
+                parts.push_back(std::format("{} differ", result.file_mismatch_count));
+            if (result.file_missing_count > 0)
+                parts.push_back(std::format("{} missing", result.file_missing_count));
+            if (result.file_extra_count > 0)
+                parts.push_back(std::format("{} extra", result.file_extra_count));
+            result.detail = pnq::string::join(parts, ", ");
+        }
+
+        return result;
     }
 
     std::vector<std::pair<std::string, std::string>> CopyDirectoryAction::to_params() const

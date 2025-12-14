@@ -755,7 +755,7 @@ int cmd_list(const std::string& snapshot_path, const std::string& filter_project
     return cmd_list_registry(filter_project, xml_output);
 }
 
-int cmd_verify(const std::string& source_ref)
+int cmd_verify(const std::string& source_ref, bool list_files)
 {
     auto resolved = resolve_reference(source_ref);
     if (!resolved.ok())
@@ -765,10 +765,19 @@ int cmd_verify(const std::string& source_ref)
     }
 
     insti::Blueprint* bp = nullptr;
+    insti::ZipSnapshotReader reader;
+    bool is_instance = (resolved.type == RefType::Instance);
 
-    if (resolved.type == RefType::Instance)
+    if (is_instance)
     {
         bp = insti::Instance::load_from_archive(resolved.path);
+        // Open reader for file-level verification
+        if (!reader.open(resolved.path))
+        {
+            print_error("Failed to open snapshot for verification: " + resolved.path);
+            if (bp) bp->release(REFCOUNT_DEBUG_ARGS);
+            return 1;
+        }
     }
     else
     {
@@ -782,6 +791,10 @@ int cmd_verify(const std::string& source_ref)
     }
 
     con::format_line("Verifying: {} v{}", bp->project_name(), bp->project_version());
+    if (is_instance)
+        con::write_line("  (Instance verification - comparing file contents)");
+    else
+        con::write_line("  (Project verification - checking resource existence)");
     con::write_line("");
 
     // Setup registry
@@ -791,12 +804,20 @@ int cmd_verify(const std::string& source_ref)
     registry.initialize();
 
     // Use orchestrator for verify
+    // Pass reader for instance verification (file-level comparison), nullptr for project verification
     insti::Orchestrator orc{&registry};
-    auto results = orc.verify(bp, nullptr);
+    auto results = orc.verify(bp, nullptr, is_instance ? &reader : nullptr);
 
     int match_count = 0;
     int mismatch_count = 0;
     int missing_count = 0;
+    int extra_count = 0;
+
+    // Aggregate file-level counts for instance verification
+    int total_file_match = 0;
+    int total_file_mismatch = 0;
+    int total_file_missing = 0;
+    int total_file_extra = 0;
 
     const auto& actions = bp->actions();
     for (size_t i = 0; i < results.size() && i < actions.size(); ++i)
@@ -821,6 +842,7 @@ int cmd_verify(const std::string& source_ref)
             break;
         case insti::VerifyResult::Status::Extra:
             status_str = "[EXTRA]   ";
+            ++extra_count;
             break;
         }
 
@@ -828,20 +850,60 @@ int cmd_verify(const std::string& source_ref)
 
         if (!result.detail.empty())
             con::format_line("             {}", result.detail);
+
+        // Aggregate file counts
+        total_file_match += result.file_match_count;
+        total_file_mismatch += result.file_mismatch_count;
+        total_file_missing += result.file_missing_count;
+        total_file_extra += result.file_extra_count;
+
+        // List specific files when --list is used
+        if (list_files)
+        {
+            for (const auto& f : result.mismatched_files)
+                con::format_line("               DIFFER: {}", f);
+            for (const auto& f : result.missing_files)
+                con::format_line("               MISSING: {}", f);
+            for (const auto& f : result.extra_files)
+                con::format_line("               EXTRA: {}", f);
+        }
     }
 
     bp->release(REFCOUNT_DEBUG_ARGS);
+    if (is_instance)
+        reader.close();
 
     con::write_line("");
-    con::format_line("Summary: {} match, {} mismatch, {} missing",
-                     match_count, mismatch_count, missing_count);
 
-    if (mismatch_count == 0 && missing_count == 0)
+    // Summary
+    con::format_line("Resource summary: {} match, {} mismatch, {} missing, {} extra",
+                     match_count, mismatch_count, missing_count, extra_count);
+
+    if (is_instance && (total_file_match > 0 || total_file_mismatch > 0 ||
+                        total_file_missing > 0 || total_file_extra > 0))
     {
-        con::write_line("All resources verified.");
+        con::format_line("File summary: {} match, {} differ, {} missing, {} extra",
+                         total_file_match, total_file_mismatch, total_file_missing, total_file_extra);
+    }
+
+    con::write_line("");
+
+    // Overall judgment
+    if (mismatch_count == 0 && missing_count == 0 && extra_count == 0)
+    {
+        con::write_line("Status: INSTALLED");
         return 0;
     }
-    return 1;
+    else if (match_count == 0)
+    {
+        con::write_line("Status: NOT INSTALLED");
+        return 1;
+    }
+    else
+    {
+        con::write_line("Status: PARTIALLY INSTALLED");
+        return 1;
+    }
 }
 
 int main(int argc, char* argv[])
@@ -919,6 +981,10 @@ int main(int argc, char* argv[])
     verify_cmd.add_description("Verify resources against live system");
     verify_cmd.add_argument("source")
         .help("Path to blueprint XML or snapshot (.zip), or A/B/C or 1/2/3");
+    verify_cmd.add_argument("-l", "--list")
+        .help("List individual files that differ, are missing, or extra")
+        .default_value(false)
+        .implicit_value(true);
 
     argparse::ArgumentParser startup_cmd("startup");
     startup_cmd.add_description("Run startup hooks (start the application)");
@@ -983,7 +1049,8 @@ int main(int argc, char* argv[])
                         clean_cmd.get<bool>("--force"));
 
     if (program.is_subcommand_used("verify"))
-        return cmd_verify(verify_cmd.get<std::string>("source"));
+        return cmd_verify(verify_cmd.get<std::string>("source"),
+                         verify_cmd.get<bool>("--list"));
 
     if (program.is_subcommand_used("startup"))
         return cmd_startup(startup_cmd.get<std::string>("source"),

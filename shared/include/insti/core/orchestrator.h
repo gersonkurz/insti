@@ -17,6 +17,7 @@ namespace insti
 	class Instance;
 	class Project;
 	class SnapshotRegistry;
+	class SnapshotReader;
 
 	/// Coordinates backup/restore/clean operations with hooks.
 	class Orchestrator final
@@ -59,8 +60,10 @@ namespace insti
 		/// Verify blueprint against live system.
 		/// @param bp Blueprint (must not be nullptr)
 		/// @param cb Callback for progress (may be nullptr)
+		/// @param reader Snapshot reader for instance verification (optional)
+		///               When provided, enables file-level comparison against archive
 		/// @return Verification results for each action
-		std::vector<VerifyResult> verify(const Blueprint* bp, IActionCallback* cb);
+		std::vector<VerifyResult> verify(const Blueprint* bp, IActionCallback* cb, SnapshotReader* reader = nullptr);
 	};
 
 	/// Simple callback that aborts on first error.
