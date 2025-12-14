@@ -56,6 +56,10 @@ namespace instinctiv
 {
 	Instinctiv* instance = nullptr;
 
+	// Forward declarations for theme functions
+	static void apply_tomorrow_night_blue();
+	static void apply_light_theme();
+
 	LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	{
 		return instance->wndproc(hWnd, msg, wParam, lParam);
@@ -376,7 +380,15 @@ namespace instinctiv
 			{
 				appSettings.theme.set("Light");
 				config::theSettings.save(*m_pConfigBackend);
-				ImGui::StyleColorsLight();
+				apply_light_theme();
+				apply_style();
+			}
+
+			if (ImGui::MenuItem("Tomorrow Night Blue", nullptr, currentTheme == "Tomorrow Night Blue"))
+			{
+				appSettings.theme.set("Tomorrow Night Blue");
+				config::theSettings.save(*m_pConfigBackend);
+				apply_tomorrow_night_blue();
 				apply_style();
 			}
 
@@ -900,7 +912,9 @@ namespace instinctiv
 		auto& appSettings = config::theSettings.application;
 		std::string savedTheme = appSettings.theme.get();
 		if (savedTheme == "Light")
-			ImGui::StyleColorsLight();
+			apply_light_theme();
+		else if (savedTheme == "Tomorrow Night Blue")
+			apply_tomorrow_night_blue();
 		else
 			ImGui::StyleColorsDark();
 		apply_style();
@@ -1054,6 +1068,96 @@ namespace instinctiv
 			ImGui_ImplDX11_InvalidateDeviceObjects();
 			ImGui_ImplDX11_CreateDeviceObjects();
 		}
+	}
+
+	// Apply Tomorrow Night Blue theme
+	static void apply_tomorrow_night_blue()
+	{
+		ImGuiStyle& style = ImGui::GetStyle();
+		ImVec4* colors = style.Colors;
+
+		// Tomorrow Night Blue palette
+		const ImVec4 bg          = ImVec4(0.000f, 0.145f, 0.318f, 1.00f);  // #002451
+		const ImVec4 bgLight     = ImVec4(0.000f, 0.180f, 0.380f, 1.00f);  // Slightly lighter
+		const ImVec4 bgLighter   = ImVec4(0.000f, 0.220f, 0.450f, 1.00f);  // Even lighter
+		const ImVec4 fg          = ImVec4(1.000f, 1.000f, 1.000f, 1.00f);  // #FFFFFF
+		const ImVec4 fgDim       = ImVec4(0.447f, 0.522f, 0.718f, 1.00f);  // #7285B7
+		const ImVec4 accent      = ImVec4(0.200f, 0.400f, 0.650f, 1.00f);  // Darker blue for selection
+		const ImVec4 accentHover = ImVec4(0.300f, 0.500f, 0.750f, 1.00f);  // Slightly lighter on hover
+		const ImVec4 green       = ImVec4(0.820f, 0.945f, 0.663f, 1.00f);  // #D1F1A9
+
+		colors[ImGuiCol_Text]                  = fg;
+		colors[ImGuiCol_TextDisabled]          = fgDim;
+		colors[ImGuiCol_WindowBg]              = bg;
+		colors[ImGuiCol_ChildBg]               = bg;
+		colors[ImGuiCol_PopupBg]               = bgLight;
+		colors[ImGuiCol_Border]                = bgLighter;
+		colors[ImGuiCol_BorderShadow]          = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+		colors[ImGuiCol_FrameBg]               = bgLight;
+		colors[ImGuiCol_FrameBgHovered]        = bgLighter;
+		colors[ImGuiCol_FrameBgActive]         = bgLighter;
+		colors[ImGuiCol_TitleBg]               = bg;
+		colors[ImGuiCol_TitleBgActive]         = bgLight;
+		colors[ImGuiCol_TitleBgCollapsed]      = bg;
+		colors[ImGuiCol_MenuBarBg]             = bgLight;
+		colors[ImGuiCol_ScrollbarBg]           = bg;
+		colors[ImGuiCol_ScrollbarGrab]         = bgLighter;
+		colors[ImGuiCol_ScrollbarGrabHovered]  = accent;
+		colors[ImGuiCol_ScrollbarGrabActive]   = accentHover;
+		colors[ImGuiCol_CheckMark]             = accent;
+		colors[ImGuiCol_SliderGrab]            = accent;
+		colors[ImGuiCol_SliderGrabActive]      = accentHover;
+		colors[ImGuiCol_Button]                = bgLighter;
+		colors[ImGuiCol_ButtonHovered]         = accent;
+		colors[ImGuiCol_ButtonActive]          = accentHover;
+		colors[ImGuiCol_Header]                = bgLighter;
+		colors[ImGuiCol_HeaderHovered]         = accent;
+		colors[ImGuiCol_HeaderActive]          = accentHover;
+		colors[ImGuiCol_Separator]             = bgLighter;
+		colors[ImGuiCol_SeparatorHovered]      = accent;
+		colors[ImGuiCol_SeparatorActive]       = accentHover;
+		colors[ImGuiCol_ResizeGrip]            = bgLighter;
+		colors[ImGuiCol_ResizeGripHovered]     = accent;
+		colors[ImGuiCol_ResizeGripActive]      = accentHover;
+		colors[ImGuiCol_Tab]                   = bgLight;
+		colors[ImGuiCol_TabHovered]            = accent;
+		colors[ImGuiCol_TabSelected]           = bgLighter;
+		colors[ImGuiCol_TableHeaderBg]         = bgLight;
+		colors[ImGuiCol_TableBorderStrong]     = bgLighter;
+		colors[ImGuiCol_TableBorderLight]      = bgLight;
+		colors[ImGuiCol_TableRowBg]            = bg;
+		colors[ImGuiCol_TableRowBgAlt]         = bgLight;
+		colors[ImGuiCol_TextSelectedBg]        = ImVec4(accent.x, accent.y, accent.z, 0.35f);
+		colors[ImGuiCol_NavHighlight]          = accent;
+	}
+
+	// Apply Light theme with medium blue accents
+	static void apply_light_theme()
+	{
+		ImGui::StyleColorsLight();
+
+		ImGuiStyle& style = ImGui::GetStyle();
+		ImVec4* colors = style.Colors;
+
+		// Medium blue accent - readable with black text
+		const ImVec4 blue       = ImVec4(0.40f, 0.55f, 0.75f, 1.00f);  // Medium blue
+		const ImVec4 blueHover  = ImVec4(0.50f, 0.65f, 0.85f, 1.00f);  // Lighter on hover
+		const ImVec4 blueActive = ImVec4(0.35f, 0.50f, 0.70f, 1.00f);  // Slightly darker when active
+
+		colors[ImGuiCol_Header]            = blue;
+		colors[ImGuiCol_HeaderHovered]     = blueHover;
+		colors[ImGuiCol_HeaderActive]      = blueActive;
+		colors[ImGuiCol_Button]            = blue;
+		colors[ImGuiCol_ButtonHovered]     = blueHover;
+		colors[ImGuiCol_ButtonActive]      = blueActive;
+		colors[ImGuiCol_CheckMark]         = blue;
+		colors[ImGuiCol_SliderGrab]        = blue;
+		colors[ImGuiCol_SliderGrabActive]  = blueActive;
+		colors[ImGuiCol_Tab]               = blue;
+		colors[ImGuiCol_TabHovered]        = blueHover;
+		colors[ImGuiCol_TabSelected]       = blueActive;
+		colors[ImGuiCol_TextSelectedBg]    = ImVec4(blue.x, blue.y, blue.z, 0.35f);
+		colors[ImGuiCol_NavHighlight]      = blue;
 	}
 
 	// Apply custom style adjustments (called after theme change)

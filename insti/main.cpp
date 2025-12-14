@@ -1,404 +1,231 @@
 #include "pch.h"
 #include <insti/insti.h>
 #include <insti/registry/snapshot_registry.h>
+#include <insti/core/orchestrator.h>
 #include <pnq/console.h>
 #include <pnq/regis3.h>
 #include <argparse/argparse.hpp>
+#include <spdlog/spdlog.h>
+#include <indicators/progress_bar.hpp>
 #include "settings.h"
-
-// Color shortcuts
-#define C_RESET   CONSOLE_STANDARD
-#define C_BOLD    CONSOLE_FOREGROUND_BRIGHT_WHITE
-#define C_DIM     CONSOLE_FOREGROUND_BRIGHT_BLACK
-#define C_GREEN   CONSOLE_FOREGROUND_GREEN
-#define C_YELLOW  CONSOLE_FOREGROUND_YELLOW
-#define C_RED     CONSOLE_FOREGROUND_RED
-#define C_CYAN    CONSOLE_FOREGROUND_CYAN
 
 namespace con = pnq::console;
 
 bool g_verbose = false;
 
-void print_error(const std::string& msg)
+void print_error(const std::string& msg);
+void print_verbose(const std::string& msg);
+
+// CLI callback with progress bar
+class ProgressBarCallback : public insti::IActionCallback
 {
-    con::write(C_RED "error: " C_RESET);
-    con::write_line(msg);
+    indicators::ProgressBar m_bar{
+        indicators::option::BarWidth{40},
+        indicators::option::ShowPercentage{true},
+        indicators::option::ShowElapsedTime{true},
+        indicators::option::ShowRemainingTime{true},
+        indicators::option::PrefixText{""},
+        indicators::option::ForegroundColor{indicators::Color::green}
+    };
+    std::string m_last_phase;
+    bool m_completed = false;
+
+public:
+    void on_progress(std::string_view phase, std::string_view detail, int percent) override
+    {
+        if (m_completed) return;
+
+        if (phase != m_last_phase)
+        {
+            m_last_phase = std::string(phase);
+            m_bar.set_option(indicators::option::PrefixText{m_last_phase + " "});
+        }
+
+        // Truncate detail if too long
+        std::string detail_str(detail);
+        if (detail_str.length() > 30)
+            detail_str = detail_str.substr(0, 27) + "...";
+        m_bar.set_option(indicators::option::PostfixText{detail_str});
+
+        if (percent >= 0)
+        {
+            m_bar.set_progress(static_cast<size_t>(percent));
+            if (percent >= 100)
+                m_completed = true;  // Stop further updates
+        }
+    }
+
+    void on_warning(std::string_view message) override
+    {
+        // Print warning on new line, then continue
+        std::cerr << "\nwarning: " << message << std::endl;
+    }
+
+    Decision on_error(std::string_view message, std::string_view context) override
+    {
+        std::cerr << "\nerror: " << message;
+        if (!context.empty())
+            std::cerr << " (" << context << ")";
+        std::cerr << std::endl;
+        return Decision::Abort;
+    }
+
+    Decision on_file_conflict(std::string_view path, std::string_view action) override
+    {
+        // Auto-overwrite for CLI
+        return Decision::Continue;
+    }
+
+    void complete()
+    {
+        if (!m_completed)
+        {
+            m_bar.set_progress(100);  // This also marks as completed when hitting 100%
+            m_completed = true;
+        }
+    }
+};
+
+// Unified reference resolution for both projects (A, B, C) and instances (1, 2, 3)
+enum class RefType { Project, Instance };
+
+struct ResolvedRef
+{
+    std::string path;
+    RefType type;
+    std::string error;
+
+    bool ok() const { return error.empty(); }
+    static ResolvedRef fail(const std::string& err) { return {{}, {}, err}; }
+    static ResolvedRef project(const std::string& p) { return {p, RefType::Project, {}}; }
+    static ResolvedRef instance(const std::string& p) { return {p, RefType::Instance, {}}; }
+};
+
+ResolvedRef resolve_reference(const std::string& ref)
+{
+    // If it's an existing file, use it directly
+    if (std::filesystem::exists(ref))
+    {
+        // Determine type by extension
+        if (ref.ends_with(".zip"))
+            return ResolvedRef::instance(ref);
+        else
+            return ResolvedRef::project(ref);
+    }
+
+    insti::config::theSettings.load();
+    std::string roots_str = insti::config::theSettings.registry.roots.get();
+    insti::SnapshotRegistry registry{pnq::string::split(roots_str, ";")};
+    registry.initialize();
+
+    // Check if ref is a letter index (A, B, C, ...) -> project
+    if (ref.size() == 1 && std::isalpha(ref[0]))
+    {
+        char c = static_cast<char>(std::toupper(ref[0]));
+        size_t index = static_cast<size_t>(c - 'A');
+
+        auto projects = registry.discover_projects("");
+        std::sort(projects.begin(), projects.end(), [](const insti::Project* a, const insti::Project* b) {
+            return a->project_name() < b->project_name();
+        });
+
+        if (index >= projects.size())
+        {
+            std::string err = "Index " + ref + " out of range (A-" +
+                std::string(1, static_cast<char>('A' + projects.size() - 1)) + ")";
+            for (auto* p : projects) PNQ_RELEASE(p);
+            return ResolvedRef::fail(err);
+        }
+
+        std::string path = projects[index]->source_path();
+        print_verbose("Resolved " + ref + " to project: " + path);
+        for (auto* p : projects) PNQ_RELEASE(p);
+        return ResolvedRef::project(path);
+    }
+
+    // Check if ref is a numeric index (1, 2, 3, ...) -> instance
+    bool is_numeric = !ref.empty() && std::all_of(ref.begin(), ref.end(), ::isdigit);
+    if (is_numeric)
+    {
+        size_t index = std::stoul(ref);
+        if (index == 0)
+            return ResolvedRef::fail("Index must be >= 1");
+
+        auto entries = registry.discover_instances("");
+        std::sort(entries.begin(), entries.end(), [](const insti::Instance* a, const insti::Instance* b) {
+            if (a->project_name() != b->project_name())
+                return a->project_name() < b->project_name();
+            return a->m_timestamp > b->m_timestamp;
+        });
+
+        if (index > entries.size())
+        {
+            std::string err = "Index " + ref + " out of range (1-" + std::to_string(entries.size()) + ")";
+            for (auto* e : entries) PNQ_RELEASE(e);
+            return ResolvedRef::fail(err);
+        }
+
+        std::string path = entries[index - 1]->m_snapshot_path;
+        print_verbose("Resolved " + ref + " to snapshot: " + path);
+        for (auto* e : entries) PNQ_RELEASE(e);
+        return ResolvedRef::instance(path);
+    }
+
+    // Try to match by name against instances
+    auto matches = registry.discover_instances(ref);
+    if (matches.empty())
+        return ResolvedRef::fail("Not found: " + ref);
+
+    if (matches.size() > 1)
+    {
+        std::string err = "Ambiguous reference - multiple matches:";
+        for (const auto* entry : matches)
+        {
+            err += "\n  " + entry->m_snapshot_path;
+            PNQ_RELEASE(entry);
+        }
+        return ResolvedRef::fail(err);
+    }
+
+    std::string path = matches[0]->m_snapshot_path;
+    print_verbose("Resolved " + ref + " to: " + path);
+    PNQ_RELEASE(matches[0]);
+    return ResolvedRef::instance(path);
 }
 
-void print_success(const std::string& msg)
+void print_error(const std::string& msg)
 {
-    con::write(C_GREEN);
+    con::write(CONSOLE_FOREGROUND_RED "error: " CONSOLE_STANDARD);
     con::write_line(msg);
-    con::write(C_RESET);
 }
 
 void print_verbose(const std::string& msg)
 {
     if (g_verbose)
-    {
-        con::write(C_DIM);
         con::write_line(msg);
-        con::write(C_RESET);
-    }
 }
 
-int cmd_info(const std::string& blueprint_path)
+int cmd_backup(const std::string& blueprint_ref, const std::string& output_arg)
 {
-    auto* bp = insti::Blueprint::load_from_file(blueprint_path);
-    if (!bp)
+    auto resolved = resolve_reference(blueprint_ref);
+    if (!resolved.ok())
     {
-        print_error("Failed to load blueprint: " + blueprint_path);
+        print_error(resolved.error);
         return 1;
     }
 
-    con::write(C_BOLD "Blueprint: " C_RESET);
-    con::write(bp->project_name());
-    con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->project_version());
+    insti::Project* project = nullptr;
+    std::string original_snapshot_path;  // For instance updates: path to delete after success
 
-    if (!bp->project_description().empty())
+    if (resolved.type == RefType::Instance)
     {
-        con::write(C_DIM "Description: " C_RESET);
-        con::write_line(bp->project_description());
-    }
+        // Re-backup from existing snapshot - will replace original after success
+        original_snapshot_path = resolved.path;
 
-    con::write_line("");
-    con::write_line(C_BOLD "Resolved variables:" C_RESET);
-    for (const auto& [name, value] : bp->resolved_variables())
-    {
-        con::write("  ");
-        con::write(C_CYAN);
-        con::write(name);
-        con::write(C_RESET " = ");
-        con::write_line(value);
-    }
-
-    con::write_line("");
-    con::format_line(C_BOLD "Actions ({}):" C_RESET, bp->actions().size());
-    for (const auto* action : bp->actions())
-    {
-        con::write("  ");
-        con::write(C_YELLOW "[");
-        con::write(action->type_name());
-        con::write("]" C_RESET " ");
-
-        if (auto* copy_dir = dynamic_cast<const insti::CopyDirectoryAction*>(action))
-        {
-            con::write("path=");
-            con::write(C_CYAN);
-            con::write(copy_dir->path());
-            con::write(C_RESET " -> archive=");
-            con::write_line(copy_dir->archive_path());
-            con::write(C_DIM "    resolved: ");
-            con::write(bp->resolve(copy_dir->path()));
-            con::write_line(C_RESET);
-        }
-        else if (auto* reg = dynamic_cast<const insti::RegistryAction*>(action))
-        {
-            con::write("key=");
-            con::write(C_CYAN);
-            con::write(reg->key());
-            con::write(C_RESET " -> archive=");
-            con::write_line(reg->archive_path());
-            con::write(C_DIM "    resolved: ");
-            con::write(bp->resolve(reg->key()));
-            con::write_line(C_RESET);
-        }
-    }
-
-    bp->release(REFCOUNT_DEBUG_ARGS);
-    return 0;
-}
-
-int cmd_backup(const std::string& blueprint_path, const std::string& output_arg)
-{
-    auto* bp = insti::Blueprint::load_from_file(blueprint_path);
-    if (!bp)
-    {
-        print_error("Failed to load blueprint: " + blueprint_path);
-        return 1;
-    }
-
-    std::string output_path = output_arg;
-
-    // Auto-generate output path if not specified
-    if (output_path.empty())
-    {
-        insti::RegistrySettings settings;
-        settings.load(insti::RegistrySettings::default_config_path());
-        insti::SnapshotRegistry registry{pnq::string::split_stripped(settings.path.get(), ";")};
-
-        std::string root = registry.first_writable_root();
-        if (root.empty())
-        {
-            print_error("No writable registry root configured. Use 'insti registry add <path>' first.");
-            bp->release(REFCOUNT_DEBUG_ARGS);
-            return 1;
-        }
-
-        std::string filename = registry.generate_filename(
-            bp->project_name(), std::chrono::system_clock::now());
-
-        // Create subdirectory: root/project/version/
-        std::filesystem::path dir = std::filesystem::path(root) / bp->project_name() / bp->project_version();
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
-
-        output_path = (dir / filename).string();
-        print_verbose("Auto-generated path: " + output_path);
-    }
-
-    con::write(C_BOLD "Backing up: " C_RESET);
-    con::write(bp->project_name());
-    con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->project_version());
-
-    insti::ZipSnapshotWriter writer;
-    if (!writer.create(output_path))
-    {
-        print_error("Failed to create snapshot: " + output_path);
-        bp->release(REFCOUNT_DEBUG_ARGS);
-        return 1;
-    }
-
-    for (const auto* action : bp->actions())
-    {
-        if (auto* copy_dir = dynamic_cast<const insti::CopyDirectoryAction*>(action))
-        {
-            std::string src_path = bp->resolve(copy_dir->path());
-            std::string archive_path = "files/" + copy_dir->archive_path();
-
-            con::write("  ");
-            con::write(C_CYAN);
-            con::write(src_path);
-            con::write(C_DIM " -> " C_RESET);
-            con::write_line(archive_path);
-
-            if (!writer.add_directory_recursive(archive_path, src_path))
-            {
-                print_error("Failed to add directory: " + src_path);
-                bp->release(REFCOUNT_DEBUG_ARGS);
-                return 1;
-            }
-        }
-        else if (auto* reg = dynamic_cast<const insti::RegistryAction*>(action))
-        {
-            std::string key_path = bp->resolve(reg->key());
-            std::string archive_path = "registry/" + reg->archive_path();
-
-            con::write("  ");
-            con::write(C_CYAN);
-            con::write(key_path);
-            con::write(C_DIM " -> " C_RESET);
-            con::write_line(archive_path);
-
-            // Export registry key to .reg format
-            pnq::regis3::registry_importer importer{key_path};
-            auto* key_entry = importer.import();
-            if (!key_entry)
-            {
-                print_error("Failed to read registry key: " + key_path);
-                bp->release(REFCOUNT_DEBUG_ARGS);
-                return 1;
-            }
-
-            pnq::regis3::regfile_format5_exporter exporter;
-            if (!exporter.perform_export(key_entry))
-            {
-                print_error("Failed to export registry key: " + key_path);
-                key_entry->release(REFCOUNT_DEBUG_ARGS);
-                bp->release(REFCOUNT_DEBUG_ARGS);
-                return 1;
-            }
-
-            writer.write_text(archive_path, exporter.result());
-            key_entry->release(REFCOUNT_DEBUG_ARGS);
-        }
-    }
-
-    print_verbose("  Adding: blueprint.xml");
-    writer.write_text("blueprint.xml", bp->to_xml());
-
-    if (!writer.finalize())
-    {
-        print_error("Failed to finalize snapshot");
-        bp->release(REFCOUNT_DEBUG_ARGS);
-        return 1;
-    }
-
-    print_success("Snapshot created: " + output_path);
-    bp->release(REFCOUNT_DEBUG_ARGS);
-    return 0;
-}
-
-int cmd_restore(const std::string& snapshot_ref, const std::string& dest_override,
-                const std::vector<std::string>& var_overrides)
-{
-    std::string snapshot_path = snapshot_ref;
-
-    // If not an existing file, try to resolve via registry
-    if (!std::filesystem::exists(snapshot_ref))
-    {
-        insti::RegistrySettings settings;
-        settings.load(insti::RegistrySettings::default_config_path());
-        insti::SnapshotRegistry registry{pnq::string::split_stripped(settings.path.get(), ";")};
-
-        auto matches = registry.discover_instances(snapshot_ref);
-        if (matches.empty())
-        {
-            print_error("Snapshot not found: " + snapshot_ref);
-            return 1;
-        }
-
-        if (matches.size() > 1)
-        {
-            print_error("Ambiguous reference - multiple matches:");
-            for (const auto* entry : matches)
-            {
-                con::write("  ");
-                con::write_line(entry->m_snapshot_path);
-                PNQ_RELEASE(entry);
-            }
-            return 1;
-        }
-
-        snapshot_path = matches[0]->m_snapshot_path;
-        print_verbose("Resolved to: " + snapshot_path);
-        PNQ_RELEASE(matches[0]);
-    }
-
-    insti::ZipSnapshotReader reader;
-    if (!reader.open(snapshot_path))
-    {
-        print_error("Failed to open snapshot: " + snapshot_path);
-        return 1;
-    }
-
-    std::string blueprint_xml = reader.read_text("blueprint.xml");
-    if (blueprint_xml.empty())
-    {
-        print_error("No blueprint.xml in snapshot");
-        return 1;
-    }
-
-    auto* bp = insti::Blueprint::load_from_string(blueprint_xml);
-    if (!bp)
-    {
-        print_error("Failed to parse blueprint from snapshot");
-        return 1;
-    }
-
-    // Apply variable overrides
-    for (const auto& override_str : var_overrides)
-    {
-        auto pos = override_str.find('=');
-        if (pos == std::string::npos)
-        {
-            print_error("Invalid --var format (expected NAME=VALUE): " + override_str);
-            bp->release(REFCOUNT_DEBUG_ARGS);
-            return 1;
-        }
-        std::string name = override_str.substr(0, pos);
-        std::string value = override_str.substr(pos + 1);
-        bp->set_override(name, value);
-        print_verbose("  Override: " + name + " = " + value);
-    }
-
-    con::write(C_BOLD "Restoring: " C_RESET);
-    con::write(bp->project_name());
-    con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->project_version());
-
-    for (const auto* action : bp->actions())
-    {
-        if (auto* copy_dir = dynamic_cast<const insti::CopyDirectoryAction*>(action))
-        {
-            std::string archive_path = "files/" + copy_dir->archive_path();
-            std::string dest_path = dest_override.empty()
-                ? bp->resolve(copy_dir->path())
-                : dest_override;
-
-            con::write("  ");
-            con::write(archive_path);
-            con::write(C_DIM " -> " C_RESET);
-            con::write(C_CYAN);
-            con::write_line(dest_path);
-            con::write(C_RESET);
-
-            if (!reader.extract_directory_recursive(archive_path, dest_path))
-            {
-                print_error("Failed to extract: " + archive_path);
-                bp->release(REFCOUNT_DEBUG_ARGS);
-                return 1;
-            }
-        }
-        else if (auto* reg = dynamic_cast<const insti::RegistryAction*>(action))
-        {
-            std::string archive_path = "registry/" + reg->archive_path();
-            std::string key_path = bp->resolve(reg->key());
-
-            con::write("  ");
-            con::write(archive_path);
-            con::write(C_DIM " -> " C_RESET);
-            con::write(C_CYAN);
-            con::write_line(key_path);
-            con::write(C_RESET);
-
-            // Read .reg from archive
-            std::string reg_content = reader.read_text(archive_path);
-            if (reg_content.empty())
-            {
-                print_error("Failed to read from archive: " + archive_path);
-                bp->release(REFCOUNT_DEBUG_ARGS);
-                return 1;
-            }
-
-            // Parse and import to live registry
-            auto importer = pnq::regis3::create_importer_from_string(reg_content);
-            if (!importer)
-            {
-                print_error("Failed to parse registry file: " + archive_path);
-                bp->release(REFCOUNT_DEBUG_ARGS);
-                return 1;
-            }
-
-            auto* key_entry = importer->import();
-            if (!key_entry)
-            {
-                print_error("Failed to import registry data: " + archive_path);
-                bp->release(REFCOUNT_DEBUG_ARGS);
-                return 1;
-            }
-
-            pnq::regis3::registry_exporter exporter;
-            if (!exporter.perform_export(key_entry))
-            {
-                print_error("Failed to write to registry: " + key_path);
-                key_entry->release(REFCOUNT_DEBUG_ARGS);
-                bp->release(REFCOUNT_DEBUG_ARGS);
-                return 1;
-            }
-
-            key_entry->release(REFCOUNT_DEBUG_ARGS);
-        }
-    }
-
-    print_success("Restore complete");
-    bp->release(REFCOUNT_DEBUG_ARGS);
-    return 0;
-}
-
-int cmd_clean(const std::string& source_path)
-{
-    insti::Blueprint* bp = nullptr;
-
-    // Determine if source is a snapshot or blueprint file
-    if (source_path.ends_with(".zip"))
-    {
         insti::ZipSnapshotReader reader;
-        if (!reader.open(source_path))
+        if (!reader.open(resolved.path))
         {
-            print_error("Failed to open snapshot: " + source_path);
+            print_error("Failed to open snapshot: " + resolved.path);
             return 1;
         }
 
@@ -409,69 +236,194 @@ int cmd_clean(const std::string& source_path)
             return 1;
         }
 
-        bp = insti::Blueprint::load_from_string(blueprint_xml);
+        project = insti::Project::load_from_string(blueprint_xml, resolved.path);
     }
     else
     {
-        bp = insti::Blueprint::load_from_file(source_path);
+        project = insti::Project::load_from_file(resolved.path);
+    }
+
+    if (!project)
+    {
+        print_error("Failed to load blueprint: " + resolved.path);
+        return 1;
+    }
+
+    // Setup registry for path generation
+    insti::config::theSettings.load();
+    std::string roots_str = insti::config::theSettings.registry.roots.get();
+    insti::SnapshotRegistry registry{pnq::string::split(roots_str, ";")};
+    registry.initialize();
+
+    std::string output_path = output_arg;
+
+    // Auto-generate output path if not specified
+    if (output_path.empty())
+    {
+        std::string root = registry.first_writable_root();
+        if (root.empty())
+        {
+            print_error("No writable registry root configured. Run instinctiv to configure.");
+            project->release(REFCOUNT_DEBUG_ARGS);
+            return 1;
+        }
+
+        std::string filename = registry.generate_filename(
+            project->project_name(), std::chrono::system_clock::now());
+
+        output_path = (std::filesystem::path(root) / filename).string();
+        print_verbose("Auto-generated path: " + output_path);
+    }
+
+    con::format_line("Backing up: {} v{}", project->project_name(), project->project_version());
+
+    // Use orchestrator with progress bar
+    ProgressBarCallback callback;
+    insti::Orchestrator orc{&registry};
+
+    bool success = orc.backup(project, output_path, &callback);
+    callback.complete();
+
+    if (success)
+    {
+        con::write_line("");
+        con::format_line("Snapshot created: {}", output_path);
+
+        // If this was a re-backup from an existing snapshot, delete the original
+        if (!original_snapshot_path.empty())
+        {
+            std::error_code ec;
+            std::filesystem::remove(original_snapshot_path, ec);
+            if (ec)
+                print_error("Warning: Failed to delete original snapshot: " + original_snapshot_path);
+            else
+                print_verbose("Deleted original snapshot: " + original_snapshot_path);
+        }
+    }
+
+    project->release(REFCOUNT_DEBUG_ARGS);
+    return success ? 0 : 1;
+}
+
+int cmd_restore(const std::string& snapshot_ref, const std::string& dest_override,
+                const std::vector<std::string>& var_overrides)
+{
+    if (!dest_override.empty())
+    {
+        print_error("--dest override is not supported. Use variable overrides (--var) instead.");
+        return 1;
+    }
+
+    auto resolved = resolve_reference(snapshot_ref);
+    if (!resolved.ok())
+    {
+        print_error(resolved.error);
+        return 1;
+    }
+
+    if (resolved.type == RefType::Project)
+    {
+        print_error("Cannot restore from a project blueprint. Use a snapshot (1, 2, 3) or .zip file.");
+        return 1;
+    }
+
+    auto* instance = insti::Instance::load_from_archive(resolved.path);
+    if (!instance)
+    {
+        print_error("Failed to load snapshot: " + resolved.path);
+        return 1;
+    }
+
+    // Apply variable overrides
+    for (const auto& override_str : var_overrides)
+    {
+        auto pos = override_str.find('=');
+        if (pos == std::string::npos)
+        {
+            print_error("Invalid --var format (expected NAME=VALUE): " + override_str);
+            instance->release(REFCOUNT_DEBUG_ARGS);
+            return 1;
+        }
+        std::string name = override_str.substr(0, pos);
+        std::string value = override_str.substr(pos + 1);
+        instance->set_override(name, value);
+        print_verbose("  Override: " + name + " = " + value);
+    }
+
+    con::format_line("Restoring: {} v{}", instance->project_name(), instance->project_version());
+
+    // Setup registry
+    insti::config::theSettings.load();
+    std::string roots_str = insti::config::theSettings.registry.roots.get();
+    insti::SnapshotRegistry registry{pnq::string::split(roots_str, ";")};
+    registry.initialize();
+
+    // Use orchestrator with progress bar
+    ProgressBarCallback callback;
+    insti::Orchestrator orc{&registry};
+
+    bool success = orc.restore(instance, resolved.path, &callback);
+    callback.complete();
+
+    if (success)
+    {
+        con::write_line("");
+        con::write_line("Restore complete");
+    }
+
+    instance->release(REFCOUNT_DEBUG_ARGS);
+    return success ? 0 : 1;
+}
+
+int cmd_clean(const std::string& source_ref)
+{
+    auto resolved = resolve_reference(source_ref);
+    if (!resolved.ok())
+    {
+        print_error(resolved.error);
+        return 1;
+    }
+
+    insti::Blueprint* bp = nullptr;
+
+    if (resolved.type == RefType::Instance)
+    {
+        bp = insti::Instance::load_from_archive(resolved.path);
+    }
+    else
+    {
+        bp = insti::Project::load_from_file(resolved.path);
     }
 
     if (!bp)
     {
-        print_error("Failed to load blueprint");
+        print_error("Failed to load blueprint: " + resolved.path);
         return 1;
     }
 
-    con::write(C_BOLD "Cleaning: " C_RESET);
-    con::write(bp->project_name());
-    con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->project_version());
+    con::format_line("Cleaning: {} v{}", bp->project_name(), bp->project_version());
 
-    // Clean resources in reverse order
-    const auto& actions = bp->actions();
-    for (auto it = actions.rbegin(); it != actions.rend(); ++it)
+    // Setup registry (needed for orchestrator)
+    insti::config::theSettings.load();
+    std::string roots_str = insti::config::theSettings.registry.roots.get();
+    insti::SnapshotRegistry registry{pnq::string::split(roots_str, ";")};
+    registry.initialize();
+
+    // Use orchestrator with progress bar
+    ProgressBarCallback callback;
+    insti::Orchestrator orc{&registry};
+
+    bool success = orc.clean(bp, &callback);
+    callback.complete();
+
+    if (success)
     {
-        const auto* action = *it;
-
-        if (auto* copy_dir = dynamic_cast<const insti::CopyDirectoryAction*>(action))
-        {
-            std::string path = bp->resolve(copy_dir->path());
-
-            con::write("  ");
-            con::write(C_RED "DELETE " C_RESET);
-            con::write(C_CYAN);
-            con::write_line(path);
-            con::write(C_RESET);
-
-            std::error_code ec;
-            std::filesystem::remove_all(path, ec);
-            if (ec)
-            {
-                print_error("Failed to delete: " + path + " (" + ec.message() + ")");
-                // Continue with other resources
-            }
-        }
-        else if (auto* reg = dynamic_cast<const insti::RegistryAction*>(action))
-        {
-            std::string key_path = bp->resolve(reg->key());
-
-            con::write("  ");
-            con::write(C_RED "DELETE " C_RESET);
-            con::write(C_CYAN);
-            con::write_line(key_path);
-            con::write(C_RESET);
-
-            if (!pnq::regis3::key::delete_recursive(key_path))
-            {
-                print_error("Failed to delete registry key: " + key_path);
-                // Continue with other resources
-            }
-        }
+        con::write_line("");
+        con::write_line("Clean complete");
     }
 
-    print_success("Clean complete");
     bp->release(REFCOUNT_DEBUG_ARGS);
-    return 0;
+    return success ? 0 : 1;
 }
 
 int cmd_list_archive(const std::string& snapshot_path)
@@ -483,269 +435,331 @@ int cmd_list_archive(const std::string& snapshot_path)
         return 1;
     }
 
-    con::write(C_BOLD "Snapshot: " C_RESET);
-    con::write(snapshot_path);
-    con::format_line(C_DIM " ({} entries)" C_RESET, reader.size());
-    con::write_line("");
+    con::format_line("Snapshot: {} ({} entries)", snapshot_path, reader.size());
 
     for (const auto& entry : reader)
     {
         if (entry.is_directory)
-        {
-            con::write(C_DIM "  [DIR]  " C_RESET);
-            con::write(C_CYAN);
-        }
+            con::format_line("  [DIR]  {}", entry.path);
         else
-        {
-            con::write("  [FILE] ");
-        }
-        con::write_line(entry.path);
-        con::write(C_RESET);
+            con::format_line("  [FILE] {}", entry.path);
     }
     return 0;
 }
 
-int cmd_list_registry(const std::string& filter_project)
+int cmd_list_registry(const std::string& filter_project, bool xml_output)
 {
-    insti::RegistrySettings settings;
-    settings.load(insti::RegistrySettings::default_config_path());
-    insti::SnapshotRegistry registry{ pnq::string::split_stripped(settings.path.get(), ";") };
-    registry.initialize();
+    // Load settings (same config file as instinctiv)
+    insti::config::theSettings.load();
 
-    auto entries = registry.discover_instances(filter_project);
-    if (entries.empty())
+    std::string roots_str = insti::config::theSettings.registry.roots.get();
+    if (roots_str.empty())
     {
-        if (pnq::string::is_empty(settings.path.get()))
+        if (!xml_output)
         {
-            con::write_line(C_DIM "No registry roots configured." C_RESET);
-            con::write_line("Use 'insti registry add <path>' to add a snapshot directory.");
-        }
-        else
-        {
-            con::write_line(C_DIM "No snapshots found." C_RESET);
+            con::write_line("No registry roots configured.");
+            con::write_line("Run instinctiv to configure snapshot directories.");
         }
         return 0;
     }
 
-    con::format_line(C_BOLD "Snapshots ({}):" C_RESET, entries.size());
-    con::write_line("");
+    // Parse roots (semicolon-separated)
+    auto roots = pnq::string::split(roots_str, ";");
 
-    for (const auto* entry : entries)
+    insti::SnapshotRegistry registry{ roots };
+    registry.initialize();
+
+    // Get both projects and instances
+    auto projects = registry.discover_projects(filter_project);
+    auto entries = registry.discover_instances(filter_project);
+
+    // Sort projects alphabetically by name
+    std::sort(projects.begin(), projects.end(), [](const insti::Project* a, const insti::Project* b) {
+        return a->project_name() < b->project_name();
+    });
+
+    // Sort instances alphabetically by name, then by timestamp (newest first within same name)
+    std::sort(entries.begin(), entries.end(), [](const insti::Instance* a, const insti::Instance* b) {
+        if (a->project_name() != b->project_name())
+            return a->project_name() < b->project_name();
+        return a->m_timestamp > b->m_timestamp;
+    });
+
+    if (projects.empty() && entries.empty())
     {
-        con::write("  ");
-        con::write(C_CYAN);
-        con::write(entry->project_name());
-        con::write(C_RESET);
-        con::write(C_DIM " [");
-        con::write(entry->timestamp_string());
-        con::write_line("]" C_RESET);
-
-        if (g_verbose)
+        if (!xml_output)
         {
-            con::write(C_DIM "    ");
-            con::write_line(entry->m_snapshot_path);
-            con::write(C_RESET);
+            con::write_line("No blueprints or snapshots found.");
+            if (g_verbose)
+            {
+                con::write_line("");
+                con::write_line("Searched in:");
+                for (const auto& root : roots)
+                    con::format_line("  {}", root);
+            }
         }
+        return 0;
+    }
+
+    if (xml_output)
+    {
+        // Dump blueprint XML from each snapshot
+        for (const auto* e : entries)
+        {
+            insti::ZipSnapshotReader reader;
+            if (reader.open(e->m_snapshot_path))
+            {
+                std::string blueprint_xml = reader.read_text("blueprint.xml");
+                if (!blueprint_xml.empty())
+                {
+                    con::format_line("<!-- {} -->", e->m_snapshot_path);
+                    con::write_line(blueprint_xml);
+                    con::write_line("");
+                }
+            }
+        }
+    }
+    else
+    {
+        // === PROJECT BLUEPRINTS TABLE ===
+        if (!projects.empty())
+        {
+            // Calculate column widths for projects
+            size_t w_name = 4, w_version = 7, w_desc = 11;
+            for (const auto* p : projects)
+            {
+                w_name = std::max(w_name, p->project_name().size());
+                w_version = std::max(w_version, p->project_version().size());
+                w_desc = std::max(w_desc, std::min(p->project_description().size(), size_t(40)));
+            }
+
+            con::write_line("Project Blueprints (use 'insti backup <#>' to create snapshot):");
+            con::write_line("");
+
+            // Header
+            con::format("{:>2}  ", "#");
+            con::format("{:<{}}  ", "Name", w_name);
+            con::format("{:<{}}  ", "Version", w_version);
+            con::format("{:<{}}", "Description", w_desc);
+            con::write_line("");
+
+            // Separator
+            con::write_line(std::string(2 + w_name + w_version + w_desc + 6, '-'));
+
+            // Rows (A, B, C, ...)
+            for (size_t i = 0; i < projects.size(); ++i)
+            {
+                const auto* p = projects[i];
+                char idx_char = 'A' + static_cast<char>(i);
+                std::string idx_str(1, idx_char);
+                con::format("{:>2}  ", idx_str);
+                con::format("{:<{}}  ", p->project_name(), w_name);
+                con::format("{:<{}}  ", p->project_version(), w_version);
+
+                std::string desc = p->project_description();
+                if (desc.size() > 40) desc = desc.substr(0, 37) + "...";
+                con::format("{:<{}}", desc, w_desc);
+                con::write_line("");
+
+                if (g_verbose)
+                    con::format_line("     -> {}", p->source_path());
+            }
+            con::write_line("");
+        }
+
+        // === INSTANCE SNAPSHOTS TABLE ===
+        if (!entries.empty())
+        {
+            // Check which snapshots are "installed" (resources exist on system)
+            std::vector<bool> installed(entries.size(), false);
+            for (size_t i = 0; i < entries.size(); ++i)
+            {
+                insti::ZipSnapshotReader reader;
+                if (reader.open(entries[i]->m_snapshot_path))
+                {
+                    std::string blueprint_xml = reader.read_text("blueprint.xml");
+                    if (!blueprint_xml.empty())
+                    {
+                        auto* bp = insti::Blueprint::load_from_string(blueprint_xml);
+                        if (bp)
+                        {
+                            bool all_exist = true;
+                            for (const auto* action : bp->actions())
+                            {
+                                if (auto* copy_dir = dynamic_cast<const insti::CopyDirectoryAction*>(action))
+                                {
+                                    std::string path = bp->resolve(copy_dir->path());
+                                    if (!std::filesystem::exists(path))
+                                        all_exist = false;
+                                }
+                                else if (auto* reg = dynamic_cast<const insti::RegistryAction*>(action))
+                                {
+                                    std::string key_path = bp->resolve(reg->key());
+                                    pnq::regis3::key k{key_path};
+                                    if (!k.open_for_reading())
+                                        all_exist = false;
+                                }
+                                if (!all_exist) break;
+                            }
+                            installed[i] = all_exist;
+                            bp->release(REFCOUNT_DEBUG_ARGS);
+                        }
+                    }
+                }
+            }
+
+            // Calculate column widths
+            size_t w_idx = std::to_string(entries.size()).size() + 1;  // +1 for potential *
+            w_idx = std::max(w_idx, size_t(2));
+            size_t w_name = 4, w_version = 7, w_timestamp = 9, w_desc = 11, w_machine = 7, w_user = 4;
+            for (const auto* e : entries)
+            {
+                w_name = std::max(w_name, e->project_name().size());
+                w_version = std::max(w_version, e->project_version().size());
+                w_timestamp = std::max(w_timestamp, e->timestamp_string().size());
+                w_desc = std::max(w_desc, std::min(e->m_description.size(), size_t(30)));
+                w_machine = std::max(w_machine, e->m_machine.size());
+                w_user = std::max(w_user, e->m_user.size());
+            }
+
+            con::write_line("Snapshots (use 'insti restore <#>' to restore, * = installed):");
+            con::write_line("");
+
+            // Header
+            con::format("{:>{}}  ", "#", w_idx);
+            con::format("{:<{}}  ", "Name", w_name);
+            con::format("{:<{}}  ", "Version", w_version);
+            con::format("{:<{}}  ", "Timestamp", w_timestamp);
+            con::format("{:<{}}  ", "Description", w_desc);
+            con::format("{:<{}}  ", "Machine", w_machine);
+            con::format("{:<{}}", "User", w_user);
+            con::write_line("");
+
+            // Separator
+            con::write_line(std::string(w_idx + w_name + w_version + w_timestamp + w_desc + w_machine + w_user + 12, '-'));
+
+            // Rows
+            for (size_t i = 0; i < entries.size(); ++i)
+            {
+                const auto* e = entries[i];
+                std::string idx_str = std::to_string(i + 1) + (installed[i] ? "*" : "");
+                con::format("{:>{}}  ", idx_str, w_idx);
+                con::format("{:<{}}  ", e->project_name(), w_name);
+                con::format("{:<{}}  ", e->project_version(), w_version);
+                con::format("{:<{}}  ", e->timestamp_string(), w_timestamp);
+
+                // Truncate description if too long
+                std::string desc = e->m_description;
+                if (desc.size() > 30) desc = desc.substr(0, 27) + "...";
+                con::format("{:<{}}  ", desc, w_desc);
+
+                con::format("{:<{}}  ", e->m_machine, w_machine);
+                con::format("{:<{}}", e->m_user, w_user);
+                con::write_line("");
+
+                if (g_verbose)
+                    con::format_line("     -> {}", e->m_snapshot_path);
+            }
+        }
+
+        con::write_line("");
+        con::format_line("{} project(s), {} snapshot(s)", projects.size(), entries.size());
     }
 
     // Release entries
+    for (auto* project : projects)
+        PNQ_RELEASE(project);
     for (auto* entry : entries)
         PNQ_RELEASE(entry);
 
     return 0;
 }
 
-int cmd_list(const std::string& snapshot_path, const std::string& filter_project)
+int cmd_list(const std::string& snapshot_path, const std::string& filter_project, bool xml_output)
 {
     // If a .zip path is given, list archive contents
     if (!snapshot_path.empty())
         return cmd_list_archive(snapshot_path);
 
     // Otherwise list registry snapshots
-    return cmd_list_registry(filter_project);
+    return cmd_list_registry(filter_project, xml_output);
 }
 
-// Registry management commands
-int cmd_registry_add(const std::string& path, bool readonly)
+int cmd_verify(const std::string& source_ref)
 {
-    insti::RegistrySettings settings;
-    settings.load(insti::RegistrySettings::default_config_path());
-
-    auto existing_path = settings.path.get();
-
-    // Check if already exists
-    if (pnq::string::contains_nocase(existing_path, path))
+    auto resolved = resolve_reference(source_ref);
+    if (!resolved.ok())
     {
-        print_error("Root already exists: " + path);
+        print_error(resolved.error);
         return 1;
     }
 
-	existing_path += ";" + path;
-    settings.path.set(existing_path);
-    if (!settings.save(insti::RegistrySettings::default_config_path()))
-    {
-        print_error("Failed to save registry settings");
-        return 1;
-    }
-
-    con::write(C_GREEN "Added root: " C_RESET);
-    con::write(path);
-    if (readonly)
-        con::write(C_DIM " (readonly)" C_RESET);
-    con::write_line("");
-    return 0;
-}
-
-int cmd_registry_remove(const std::string& path)
-{
-    insti::RegistrySettings settings;
-    settings.load(insti::RegistrySettings::default_config_path());
-
-    auto existing_path = settings.path.get();
-
-    if (!pnq::string::contains_nocase(existing_path, path))
-    {
-        print_error("Root not found: " + path);
-        return 1;
-    }
-    pnq::string::Writer writer;
-    bool first = true;
-	for (const auto path_item : pnq::string::split_stripped(existing_path, ";"))
-    {
-        if (!pnq::string::equals_nocase(path_item, path))
-        {
-            if(first)
-				first = false;
-			else
-                writer.append(";");
-
-            writer.append(path_item);
-        }
-    }
-    settings.path.set(writer.as_string());
-    if (!settings.save(insti::RegistrySettings::default_config_path()))
-    {
-        print_error("Failed to save registry settings");
-        return 1;
-    }
-
-    con::write(C_GREEN "Removed root: " C_RESET);
-    con::write_line(path);
-    return 0;
-}
-
-int cmd_registry_roots()
-{
-    insti::RegistrySettings settings;
-    settings.load(insti::RegistrySettings::default_config_path());
-
-	const auto root_paths = pnq::string::split_stripped(settings.path.get(), ";");
-
-    if (root_paths.size() == 0)
-    {
-        con::write_line(C_DIM "No registry roots configured." C_RESET);
-        con::write_line("Use 'insti registry add <path>' to add a snapshot directory.");
-        return 0;
-    }
-
-    con::format_line(C_BOLD "Registry roots ({}):" C_RESET, root_paths.size());
-    con::write_line("");
-
-    for (size_t i = 0; i < root_paths.size(); ++i)
-    {
-        const auto& root = root_paths[i];
-        con::write("  ");
-        con::write(C_GREEN "[RW] " C_RESET);
-        con::write_line(root);
-    }
-    return 0;
-}
-
-int cmd_verify(const std::string& source_path)
-{
     insti::Blueprint* bp = nullptr;
 
-    // Determine if source is a snapshot or blueprint file
-    if (source_path.ends_with(".zip"))
+    if (resolved.type == RefType::Instance)
     {
-        insti::ZipSnapshotReader reader;
-        if (!reader.open(source_path))
-        {
-            print_error("Failed to open snapshot: " + source_path);
-            return 1;
-        }
-
-        std::string blueprint_xml = reader.read_text("blueprint.xml");
-        if (blueprint_xml.empty())
-        {
-            print_error("No blueprint.xml in snapshot");
-            return 1;
-        }
-
-        bp = insti::Blueprint::load_from_string(blueprint_xml);
+        bp = insti::Instance::load_from_archive(resolved.path);
     }
     else
     {
-        bp = insti::Blueprint::load_from_file(source_path);
+        bp = insti::Project::load_from_file(resolved.path);
     }
 
     if (!bp)
     {
-        print_error("Failed to load blueprint");
+        print_error("Failed to load blueprint: " + resolved.path);
         return 1;
     }
 
-    con::write(C_BOLD "Verifying: " C_RESET);
-    con::write(bp->project_name());
-    con::write(C_DIM " v" C_RESET);
-    con::write_line(bp->project_version());
+    con::format_line("Verifying: {} v{}", bp->project_name(), bp->project_version());
     con::write_line("");
 
-    // Create context for verify (uses clean context - no reader/writer needed)
-    auto* ctx = insti::ActionContext::for_clean(bp, nullptr);
+    // Setup registry
+    insti::config::theSettings.load();
+    std::string roots_str = insti::config::theSettings.registry.roots.get();
+    insti::SnapshotRegistry registry{pnq::string::split(roots_str, ";")};
+    registry.initialize();
+
+    // Use orchestrator for verify
+    insti::Orchestrator orc{&registry};
+    auto results = orc.verify(bp, nullptr);
 
     int match_count = 0;
     int mismatch_count = 0;
     int missing_count = 0;
 
-    for (const auto* action : bp->actions())
+    const auto& actions = bp->actions();
+    for (size_t i = 0; i < results.size() && i < actions.size(); ++i)
     {
-        auto result = action->verify(ctx);
+        const auto& result = results[i];
+        const auto* action = actions[i];
 
-        con::write("  ");
+        const char* status_str = "";
         switch (result.status)
         {
         case insti::VerifyResult::Status::Match:
-            con::write(C_GREEN "[MATCH]    " C_RESET);
+            status_str = "[MATCH]   ";
             ++match_count;
             break;
         case insti::VerifyResult::Status::Mismatch:
-            con::write(C_YELLOW "[MISMATCH] " C_RESET);
+            status_str = "[MISMATCH]";
             ++mismatch_count;
             break;
         case insti::VerifyResult::Status::Missing:
-            con::write(C_RED "[MISSING]  " C_RESET);
+            status_str = "[MISSING] ";
             ++missing_count;
             break;
         case insti::VerifyResult::Status::Extra:
-            con::write(C_CYAN "[EXTRA]    " C_RESET);
+            status_str = "[EXTRA]   ";
             break;
         }
 
-        con::write(C_BOLD "[");
-        con::write(action->type_name());
-        con::write("] " C_RESET);
-        con::write_line(action->description());
+        con::format_line("  {} [{}] {}", status_str, action->type_name(), action->description());
 
         if (!result.detail.empty())
-        {
-            con::write(C_DIM "             ");
-            con::write_line(result.detail);
-            con::write(C_RESET);
-        }
+            con::format_line("             {}", result.detail);
     }
 
-    ctx->release(REFCOUNT_DEBUG_ARGS);
     bp->release(REFCOUNT_DEBUG_ARGS);
 
     con::write_line("");
@@ -754,130 +768,17 @@ int cmd_verify(const std::string& source_path)
 
     if (mismatch_count == 0 && missing_count == 0)
     {
-        print_success("All resources verified.");
+        con::write_line("All resources verified.");
         return 0;
     }
     return 1;
 }
 
-int cmd_test()
-{
-    const std::string blueprint_path = "test/small.xml";
-    const std::string snapshot_path = "test-roundtrip.zip";
-    const std::string restore_dest = "C:/Temp/insti-roundtrip";
-
-    // Step 1: Backup
-    con::write_line(C_BOLD "=== STEP 1: BACKUP ===" C_RESET);
-    std::string original_path;
-    {
-        auto* bp = insti::Blueprint::load_from_file(blueprint_path);
-        if (!bp)
-        {
-            print_error("Failed to load blueprint");
-            return 1;
-        }
-
-        insti::ZipSnapshotWriter writer;
-        if (!writer.create(snapshot_path))
-        {
-            print_error("Failed to create snapshot");
-            bp->release(REFCOUNT_DEBUG_ARGS);
-            return 1;
-        }
-
-        for (const auto* action : bp->actions())
-        {
-            if (auto* copy_dir = dynamic_cast<const insti::CopyDirectoryAction*>(action))
-            {
-                original_path = bp->resolve(copy_dir->path());
-                std::string archive_path = "files/" + copy_dir->archive_path();
-                con::write("  Backing up: ");
-                con::write(C_CYAN);
-                con::write_line(original_path);
-                con::write(C_RESET);
-                writer.add_directory_recursive(archive_path, original_path);
-            }
-        }
-        writer.write_text("blueprint.xml", bp->to_xml());
-        writer.finalize();
-        bp->release(REFCOUNT_DEBUG_ARGS);
-        con::write("  Created: ");
-        con::write_line(snapshot_path);
-    }
-
-    con::write_line("");
-
-    // Step 2: Restore
-    con::write_line(C_BOLD "=== STEP 2: RESTORE ===" C_RESET);
-    {
-        insti::ZipSnapshotReader reader;
-        if (!reader.open(snapshot_path))
-        {
-            print_error("Failed to open snapshot");
-            return 1;
-        }
-
-        auto* bp = insti::Blueprint::load_from_string(reader.read_text("blueprint.xml"));
-        if (!bp)
-        {
-            print_error("Failed to parse blueprint");
-            return 1;
-        }
-
-        for (const auto* action : bp->actions())
-        {
-            if (auto* copy_dir = dynamic_cast<const insti::CopyDirectoryAction*>(action))
-            {
-                std::string archive_path = "files/" + copy_dir->archive_path();
-                con::write("  Restoring to: ");
-                con::write(C_CYAN);
-                con::write_line(restore_dest);
-                con::write(C_RESET);
-                reader.extract_directory_recursive(archive_path, restore_dest);
-            }
-        }
-        bp->release(REFCOUNT_DEBUG_ARGS);
-    }
-
-    con::write_line("");
-
-    // Step 3: Compare
-    con::write_line(C_BOLD "=== STEP 3: COMPARE ===" C_RESET);
-    con::write("  Original: ");
-    con::write_line(original_path);
-    con::write("  Restored: ");
-    con::write_line(restore_dest);
-
-    size_t original_count = 0;
-    size_t restored_count = 0;
-
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(original_path))
-        if (entry.is_regular_file()) ++original_count;
-
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(restore_dest))
-        if (entry.is_regular_file()) ++restored_count;
-
-    con::format_line("  Original file count: {}", original_count);
-    con::format_line("  Restored file count: {}", restored_count);
-
-    con::write_line("");
-    if (original_count == restored_count)
-        print_success("  PASS: File counts match!");
-    else
-    {
-        print_error("  FAIL: File count mismatch!");
-        return 1;
-    }
-
-    // Cleanup
-    std::filesystem::remove_all(restore_dest);
-    std::filesystem::remove(snapshot_path);
-    con::write_line(C_DIM "  Cleaned up temp files." C_RESET);
-    return 0;
-}
-
 int main(int argc, char* argv[])
 {
+    // Default to warn level to suppress info messages; --verbose lowers to info
+    spdlog::set_level(spdlog::level::warn);
+
     argparse::ArgumentParser program("insti", insti::version());
     program.add_description("Application state snapshot and restore utility");
 
@@ -888,11 +789,6 @@ int main(int argc, char* argv[])
         .implicit_value(true);
 
     // Subcommands
-    argparse::ArgumentParser info_cmd("info");
-    info_cmd.add_description("Display blueprint information");
-    info_cmd.add_argument("blueprint")
-        .help("Path to blueprint XML file");
-
     argparse::ArgumentParser backup_cmd("backup");
     backup_cmd.add_description("Create a snapshot from blueprint");
     backup_cmd.add_argument("blueprint")
@@ -923,6 +819,10 @@ int main(int argc, char* argv[])
     list_cmd.add_argument("--project")
         .help("Filter by project name")
         .default_value(std::string{});
+    list_cmd.add_argument("--xml")
+        .help("Dump blueprint XML from each snapshot")
+        .default_value(false)
+        .implicit_value(true);
 
     argparse::ArgumentParser clean_cmd("clean");
     clean_cmd.add_description("Remove resources defined in blueprint or snapshot");
@@ -934,46 +834,11 @@ int main(int argc, char* argv[])
     verify_cmd.add_argument("source")
         .help("Path to blueprint XML or snapshot (.zip)");
 
-    argparse::ArgumentParser test_cmd("test");
-    test_cmd.add_description("Run roundtrip test with hardcoded paths");
-
-    // Registry management subcommand
-    argparse::ArgumentParser registry_cmd("registry");
-    registry_cmd.add_description("Manage snapshot registry roots");
-
-    argparse::ArgumentParser registry_add_cmd("add");
-    registry_add_cmd.add_description("Add a snapshot root directory");
-    registry_add_cmd.add_argument("path")
-        .help("Path to snapshot directory");
-    registry_add_cmd.add_argument("--readonly")
-        .help("Mark root as read-only")
-        .default_value(false)
-        .implicit_value(true);
-
-    argparse::ArgumentParser registry_remove_cmd("remove");
-    registry_remove_cmd.add_description("Remove a snapshot root directory");
-    registry_remove_cmd.add_argument("path")
-        .help("Path to remove");
-
-    argparse::ArgumentParser registry_roots_cmd("roots");
-    registry_roots_cmd.add_description("List configured root directories");
-
-    argparse::ArgumentParser registry_index_cmd("index");
-    registry_index_cmd.add_description("Rebuild index for all roots");
-
-    registry_cmd.add_subparser(registry_add_cmd);
-    registry_cmd.add_subparser(registry_remove_cmd);
-    registry_cmd.add_subparser(registry_roots_cmd);
-    registry_cmd.add_subparser(registry_index_cmd);
-
-    program.add_subparser(info_cmd);
     program.add_subparser(backup_cmd);
     program.add_subparser(restore_cmd);
     program.add_subparser(clean_cmd);
     program.add_subparser(verify_cmd);
     program.add_subparser(list_cmd);
-    program.add_subparser(registry_cmd);
-    program.add_subparser(test_cmd);
 
     try
     {
@@ -988,16 +853,12 @@ int main(int argc, char* argv[])
     }
 
     g_verbose = program.get<bool>("--verbose");
+    if (g_verbose)
+        spdlog::set_level(spdlog::level::info);
 
     // Print banner
-    con::write(C_BOLD "insti" C_RESET);
-    con::write(C_DIM " v");
-    con::write(insti::version());
-    con::write_line(C_RESET);
+    con::format_line("insti v{}", insti::version());
     con::write_line("");
-
-    if (program.is_subcommand_used("info"))
-        return cmd_info(info_cmd.get<std::string>("blueprint"));
 
     if (program.is_subcommand_used("backup"))
         return cmd_backup(backup_cmd.get<std::string>("blueprint"),
@@ -1016,26 +877,9 @@ int main(int argc, char* argv[])
 
     if (program.is_subcommand_used("list"))
         return cmd_list(list_cmd.get<std::string>("snapshot"),
-                       list_cmd.get<std::string>("--project"));
+                       list_cmd.get<std::string>("--project"),
+                       list_cmd.get<bool>("--xml"));
 
-    if (program.is_subcommand_used("registry"))
-    {
-        if (registry_cmd.is_subcommand_used("add"))
-            return cmd_registry_add(registry_add_cmd.get<std::string>("path"),
-                                   registry_add_cmd.get<bool>("--readonly"));
-        if (registry_cmd.is_subcommand_used("remove"))
-            return cmd_registry_remove(registry_remove_cmd.get<std::string>("path"));
-        if (registry_cmd.is_subcommand_used("roots"))
-            return cmd_registry_roots();
-        // No subcommand - show registry help
-        con::write_line(registry_cmd.help().str());
-        return 0;
-    }
-
-    if (program.is_subcommand_used("test"))
-        return cmd_test();
-
-    // No subcommand - show help
-    con::write_line(program.help().str());
-    return 0;
+    // No subcommand - default to list
+    return cmd_list("", "", false);
 }

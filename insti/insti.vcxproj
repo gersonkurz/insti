@@ -121,32 +121,32 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)temp\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(SolutionDir)third_party\indicators\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)temp\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(SolutionDir)third_party\indicators\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)temp\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(SolutionDir)third_party\indicators\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)temp\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(SolutionDir)third_party\indicators\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)temp\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(SolutionDir)third_party\indicators\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)temp\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir);$(SolutionDir)third_party\argparse\include;$(SolutionDir)shared\include;$(SolutionDir)third_party\miniz;$(SolutionDir)third_party\pnq\include;$(SolutionDir)third_party\pugixml\src;$(SolutionDir)third_party\sqlite3-amalgamation\src\sqlite3;$(SolutionDir)third_party\tomlplusplus\include;$(SolutionDir)third_party\spdlog\include;$(SolutionDir)third_party\indicators\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>

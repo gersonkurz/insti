@@ -2,17 +2,13 @@
   <img src="logo.png" alt="insti logo" width="1024"/>
 </p>
 
-**insti** is a Windows utility for switching between different installations and configurations of [ProAKT](https://www.pnq.de/proakt.html) (and other complex applications). It captures the complete application state — files, registry, services, environment variables — into a single snapshot archive, then restores it exactly as captured on any compatible Windows machine.
+**insti** is a Windows utility for switching between different installations and configurations of any application. Well, mostly for ProAKT, the app I am working with in my day job, but strictly anything. Notepad even. It captures the complete application state — files, registry, services, environment variables — into a single snapshot archive, can uninstall it, and can  restores it exactly as captured on any compatible Windows machine.
 
 ## Background
 
 ProAKT deployments often coexist in multiple variants: different customer configurations, software versions, or test environments. Switching between them manually is error-prone and time-consuming. **insti** automates this: back up the current state, clean the system, restore a different snapshot — all in one operation.
 
 While designed primarily for ProAKT, the architecture is generic. Any Windows application that stores state in predictable locations (files, registry, services, environment) can be managed through insti blueprints.
-
-**Predecessor:** [insti](https://github.com/gersonkurz/insti) — a similar tool with narrower scope. insti extends the concept with variable substitution, hooks, SQL patching, and a snapshot registry.
-
-**The name:** An *engram* (from Greek ἔγγραμμα, "inscription") is the hypothetical means by which memories are stored in the brain — a physical trace of experience. insti captures and restores the complete "memory" of an application's state.
 
 ## How It Works
 
@@ -367,10 +363,4 @@ Requires: Visual Studio 2022, CMake 3.20+
 ```
 cmake -B build-x64 -A x64
 cmake --build build-x64 --config Release
-```
-
-## Testing
-
-```
-./build-x64/tests/Release/engramma_tests.exe
 ```

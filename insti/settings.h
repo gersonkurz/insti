@@ -1,35 +1,48 @@
 #pragma once
 
-#include <insti/registry/snapshot_registry.h>
 #include <pnq/config/section.h>
 #include <pnq/config/typed_value.h>
-#include <pnq/config/typed_vector_value.h>
 #include <pnq/config/toml_backend.h>
+#include <pnq/path.h>
 #include <string>
-#include <string_view>
 
 namespace insti
 {
-    /// Registry configuration - manages snapshot roots and naming patterns.
-    /// @note Inherits from pnq::config::Section, cannot be final.
+namespace config
+{
+
+/// Settings structure compatible with instinctiv's insti.toml
+/// Only includes the sections needed by the CLI
+class Settings : public pnq::config::Section
+{
+public:
+    Settings()
+        : Section{}
+    {
+    }
+
     struct RegistrySettings : public pnq::config::Section
     {
-        RegistrySettings()
-            : Section{}
+        RegistrySettings(Section* pParent)
+            : Section{pParent, "Registry"}
         {
         }
+        pnq::config::TypedValue<std::string> roots{this, "Roots", "C:\\ProgramData\\insti"};
+        pnq::config::TypedValue<std::string> defaultOutputDir{this, "DefaultOutputDir", ""};
+    } registry{this};
 
-        pnq::config::TypedValue<std::string> path{ this, "Path", "" };  ///< Directory path
+    /// Load from %LOCALAPPDATA%\insti\insti.toml
+    bool load()
+    {
+        auto config_path = pnq::path::get_known_folder(FOLDERID_LocalAppData) / "insti" / "insti.toml";
+        pnq::config::TomlBackend backend{config_path.string()};
+        return Section::load(backend);
+    }
+};
 
-        /// Load settings from file. Creates default config if file doesn't exist.
-        bool load(std::string_view path);
+/// Global settings instance
+extern Settings theSettings;
 
-        /// Save settings to file.
-        bool save(std::string_view path) const;
-
-        /// Get the default config file path (%APPDATA%\insti\registry.toml)
-        static std::string default_config_path();
-    };
-
+} // namespace config
 } // namespace insti
 
