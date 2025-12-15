@@ -50,6 +50,12 @@
     <Filter Include="pugixml">
       <UniqueIdentifier>{3acc7099-02fd-4871-b636-5ceea06cf8f9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="include\config">
+      <UniqueIdentifier>{0ca949bc-7da1-4a92-9430-820f218f6519}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\config">
+      <UniqueIdentifier>{efb9a842-728e-43c2-b6ec-d7c428e33fb1}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\pch.cpp">
@@ -147,6 +153,9 @@
     </ClCompile>
     <ClCompile Include="..\third_party\pugixml\src\pugixml.cpp">
       <Filter>pugixml</Filter>
+    </ClCompile>
+    <ClCompile Include="src\config\settings.cpp">
+      <Filter>src\config</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -248,6 +257,9 @@
     </ClInclude>
     <ClInclude Include="..\third_party\pugixml\src\pugixml.hpp">
       <Filter>pugixml</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\config\settings.h">
+      <Filter>include\config</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

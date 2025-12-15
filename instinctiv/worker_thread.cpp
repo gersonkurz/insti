@@ -184,7 +184,7 @@ void WorkerThread::do_backup(const StartBackup& cmd)
 
     WorkerCallback callback{ this };
     insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
-    bool success = orc.backup(cmd.m_project.get(), cmd.m_output_path, &callback);
+    bool success = orc.backup(cmd.m_project.get(), cmd.m_output_path, &callback, false, cmd.m_description);
 
     // Extract project name from filename (matches how discover() parses it)
     std::string project;

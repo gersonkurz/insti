@@ -351,6 +351,8 @@ namespace instinctiv
 		render_progress_dialog();
 		render_first_run_dialog();
 		render_font_dialog();
+		render_backup_dialog();
+		render_settings_dialog();
 
 		// Rendering
 		ImGui::Render();
@@ -468,6 +470,18 @@ namespace instinctiv
 			if (ImGui::MenuItem("Select Font..."))
 			{
 				m_showFontDialog = true;
+			}
+
+			ImGui::Separator();
+
+			if (ImGui::MenuItem("Settings..."))
+			{
+				// Copy current roots to editable list
+				m_settingsRoots.clear();
+				for (const auto& root : m_state.registry_roots)
+					m_settingsRoots.push_back(root);
+				m_settingsSelectedRoot = -1;
+				m_showSettingsDialog = true;
 			}
 
 			ImGui::EndMenu();
@@ -1469,7 +1483,7 @@ namespace instinctiv
 			// Parse and create first root if needed
 			std::istringstream iss{ roots };
 			std::string first_root;
-			std::getline(iss, first_root, ',');
+			std::getline(iss, first_root, ';');
 			if (!first_root.empty())
 			{
 				std::filesystem::create_directories(first_root);
@@ -1650,45 +1664,16 @@ namespace instinctiv
 
 
 	// Start backup operation from a blueprint entry
-	void Instinctiv::start_backup_from_project(insti::Project* blueprint)
+	void Instinctiv::start_backup_from_project(insti::Project* project)
 	{
-		if (!blueprint)
+		if (!project)
 			return;
 
-		spdlog::info("start_backup_from_project: {}", blueprint->source_path());
+		spdlog::info("start_backup_from_project: {}", project->source_path());
 
-		spdlog::info("Blueprint loaded: {} v{}", blueprint->project_name(), blueprint->project_version());
-
-		// TBD: we should really show a dialog here instead of doing auto-start
-
-		// Get output directory from settings (first registry root)
-		auto& registrySettings = config::theSettings.registry;
-		std::string roots_str = registrySettings.roots.get();
-		std::string output_dir;
-
-		// Use defaultOutputDir if set, otherwise first registry root
-		std::string default_output = registrySettings.defaultOutputDir.get();
-		if (!default_output.empty())
+		if (m_state.registry_roots.empty())
 		{
-			output_dir = default_output;
-		}
-		else
-		{
-			// Parse first root
-			std::istringstream iss(roots_str);
-			std::getline(iss, output_dir, ',');
-			// Trim whitespace
-			size_t start = output_dir.find_first_not_of(" \t");
-			size_t end = output_dir.find_last_not_of(" \t");
-			if (start != std::string::npos && end != std::string::npos)
-				output_dir = output_dir.substr(start, end - start + 1);
-		}
-
-		if (output_dir.empty())
-		{
-			spdlog::error("No registry root configured for output");
-			blueprint->release(REFCOUNT_DEBUG_ARGS);
-			m_state.status_message = "No output directory configured";
+			m_state.status_message = "No registry roots configured. Use View > Settings to add one.";
 			return;
 		}
 
@@ -1701,35 +1686,20 @@ namespace instinctiv
 		char timestamp[32];
 		std::strftime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M%S", &tm_now);
 
-		// Use blueprint name as project, "default" as variant, blueprint version as version
-		std::string project = blueprint->project_name();
+		// Use blueprint name as project
+		std::string project_name = project->project_name();
 
 		// Sanitize names (replace spaces with underscores)
-		std::replace(project.begin(), project.end(), ' ', '_');
+		std::replace(project_name.begin(), project_name.end(), ' ', '_');
 
-		std::string filename = std::format("{}-{}.zip", project, timestamp);
-		std::filesystem::path output_path = std::filesystem::path(output_dir) / filename;
+		// Pre-fill dialog fields
+		m_backupProject = project;
+		strncpy_s(m_backupDescription, project->project_description().c_str(), sizeof(m_backupDescription) - 1);
+		m_backupFilename = std::format("{}-{}.zip", project_name, timestamp);
+		m_backupSelectedRoot = 0;  // Default to first root
 
-		spdlog::info("Output path: {}", output_path.string());
-
-		// Store blueprint for the operation (will be released when complete)
-		if (m_state.active_blueprint)
-			PNQ_RELEASE(m_state.active_blueprint);
-		m_state.active_blueprint = blueprint;
-		PNQ_ADDREF(m_state.active_blueprint);
-
-		// Setup progress dialog
-		m_state.show_progress_dialog = true;
-		m_state.progress_operation = "Backup";
-		m_state.progress_phase = "Starting...";
-		m_state.progress_detail.clear();
-		m_state.progress_percent = -1;
-		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Starting backup: " + blueprint->project_name());
-		m_state.progress_log.push_back("Output: " + output_path.string());
-
-		// Start backup on worker thread
-		m_state.worker->post(StartBackup{ m_state.m_snapshot_registry, blueprint, output_path.string() });
+		// Show the backup options dialog
+		m_showBackupDialog = true;
 	}
 
 	void Instinctiv::start_clean_from_project(insti::Project* project)
@@ -1789,23 +1759,46 @@ namespace instinctiv
 
 		spdlog::info("start_backup_from_instance (refresh): {}", instance->m_snapshot_path);
 
-		// Setup progress dialog
-		m_state.progress_operation = "Refresh Snapshot";
-		m_state.progress_phase = "Starting";
-		m_state.progress_detail = "";
-		m_state.progress_percent = -1;
-		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Refreshing: " + instance->project_name());
-		m_state.progress_log.push_back("Output: " + instance->m_snapshot_path);
-		m_state.show_progress_dialog = true;
+		if (m_state.registry_roots.empty())
+		{
+			m_state.status_message = "No registry roots configured. Use View > Settings to add one.";
+			return;
+		}
 
-		if (m_state.active_blueprint)
-			PNQ_RELEASE(m_state.active_blueprint);
-		m_state.active_blueprint = instance;
-		PNQ_ADDREF(m_state.active_blueprint);
+		// Extract filename from existing snapshot path
+		std::filesystem::path snapshot_path{ instance->m_snapshot_path };
+		std::string filename = snapshot_path.filename().string();
+		std::filesystem::path parent_dir = snapshot_path.parent_path();
 
-		// Use the instance's archive path as output (refresh/overwrite)
-		m_state.worker->post(StartBackup{ m_state.m_snapshot_registry, instance, instance->m_snapshot_path });
+		// Find which root this instance belongs to (default to that one)
+		int selected_root = 0;
+		for (int i = 0; i < static_cast<int>(m_state.registry_roots.size()); ++i)
+		{
+			std::filesystem::path root_path{ m_state.registry_roots[i] };
+			// Check if parent_dir starts with or equals this root
+			std::error_code ec;
+			auto rel = std::filesystem::relative(parent_dir, root_path, ec);
+			if (!ec && !rel.empty() && rel.native()[0] != '.')
+			{
+				selected_root = i;
+				break;
+			}
+			// Also check exact match
+			if (std::filesystem::equivalent(parent_dir, root_path, ec))
+			{
+				selected_root = i;
+				break;
+			}
+		}
+
+		// Pre-fill dialog fields
+		m_backupProject = instance;  // Instance inherits from Project
+		strncpy_s(m_backupDescription, instance->m_description.c_str(), sizeof(m_backupDescription) - 1);
+		m_backupFilename = filename;
+		m_backupSelectedRoot = selected_root;
+
+		// Show the backup options dialog
+		m_showBackupDialog = true;
 	}
 
 	void Instinctiv::start_clean_from_instance(insti::Instance* instance)
@@ -2065,6 +2058,246 @@ namespace instinctiv
 			m_availableFonts.clear();
 			m_selectedFontIndex = -1;
 			m_originalFontName.clear();
+		}
+	}
+
+	// Backup options dialog
+	void Instinctiv::render_backup_dialog()
+	{
+		if (!m_showBackupDialog || !m_backupProject)
+			return;
+
+		ImGui::SetNextWindowSize(ImVec2(500, 220), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+		bool open = true;
+		bool do_backup = false;
+
+		if (ImGui::Begin("Backup Options", &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize))
+		{
+			// Project info (read-only)
+			ImGui::Text("Project:");
+			ImGui::SameLine(100);
+			ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.7f, 1.0f), "%s v%s",
+				m_backupProject->project_name().c_str(),
+				m_backupProject->project_version().c_str());
+
+			ImGui::Spacing();
+
+			// Description (editable)
+			ImGui::Text("Description:");
+			ImGui::SameLine(100);
+			ImGui::SetNextItemWidth(-1);
+			ImGui::InputText("##Description", m_backupDescription, sizeof(m_backupDescription));
+
+			ImGui::Spacing();
+
+			// Save to (root selector)
+			ImGui::Text("Save to:");
+			ImGui::SameLine(100);
+			if (m_state.registry_roots.empty())
+			{
+				ImGui::TextDisabled("(No registry roots configured)");
+			}
+			else
+			{
+				ImGui::BeginGroup();
+				for (int i = 0; i < static_cast<int>(m_state.registry_roots.size()); ++i)
+				{
+					if (ImGui::RadioButton(m_state.registry_roots[i].c_str(), m_backupSelectedRoot == i))
+					{
+						m_backupSelectedRoot = i;
+					}
+				}
+				ImGui::EndGroup();
+			}
+
+			ImGui::Spacing();
+
+			// Filename (read-only, auto-generated)
+			ImGui::Text("Filename:");
+			ImGui::SameLine(100);
+			ImGui::TextDisabled("%s", m_backupFilename.c_str());
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::Spacing();
+
+			// Buttons
+			bool can_backup = !m_state.registry_roots.empty() &&
+			                  m_backupSelectedRoot >= 0 &&
+			                  m_backupSelectedRoot < static_cast<int>(m_state.registry_roots.size());
+			ImGui::BeginDisabled(!can_backup);
+			if (ImGui::Button("Backup", ImVec2(80, 0)))
+			{
+				do_backup = true;
+				open = false;
+			}
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(80, 0)))
+			{
+				open = false;
+			}
+		}
+		ImGui::End();
+
+		if (!open)
+		{
+			if (do_backup && m_backupProject && m_backupSelectedRoot >= 0)
+			{
+				// Build full output path - prefer "instances" subdirectory if it exists
+				std::filesystem::path root_path{ m_state.registry_roots[m_backupSelectedRoot] };
+				std::filesystem::path instances_dir = root_path / "instances";
+				if (std::filesystem::is_directory(instances_dir))
+					root_path = instances_dir;
+				std::filesystem::path output_path = root_path / m_backupFilename;
+
+				// Store blueprint for the operation
+				if (m_state.active_blueprint)
+					PNQ_RELEASE(m_state.active_blueprint);
+				m_state.active_blueprint = m_backupProject;
+				PNQ_ADDREF(m_state.active_blueprint);
+
+				// Setup progress dialog
+				m_state.show_progress_dialog = true;
+				m_state.progress_operation = "Backup";
+				m_state.progress_phase = "Starting...";
+				m_state.progress_detail.clear();
+				m_state.progress_percent = -1;
+				m_state.progress_log.clear();
+				m_state.progress_log.push_back("Starting backup: " + m_backupProject->project_name());
+				m_state.progress_log.push_back("Output: " + output_path.string());
+
+				// Start backup on worker thread with user-specified options
+				m_state.worker->post(StartBackup{
+					m_state.m_snapshot_registry,
+					m_backupProject,
+					output_path.string(),
+					m_backupDescription
+				});
+			}
+
+			m_showBackupDialog = false;
+			m_backupProject = nullptr;
+		}
+	}
+
+	// Settings dialog
+	void Instinctiv::render_settings_dialog()
+	{
+		if (!m_showSettingsDialog)
+			return;
+
+		ImGui::SetNextWindowSize(ImVec2(500, 350), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+		bool open = true;
+		bool save_settings = false;
+
+		if (ImGui::Begin("Settings", &open, ImGuiWindowFlags_NoCollapse))
+		{
+			ImGui::Text("Registry Roots");
+			ImGui::TextDisabled("Folders where blueprints and snapshots are stored");
+			ImGui::Spacing();
+
+			// List of roots
+			ImVec2 listSize(-1, -ImGui::GetFrameHeightWithSpacing() * 2 - 8);
+			if (ImGui::BeginListBox("##RootsList", listSize))
+			{
+				for (int i = 0; i < static_cast<int>(m_settingsRoots.size()); ++i)
+				{
+					bool isSelected = (m_settingsSelectedRoot == i);
+					if (ImGui::Selectable(m_settingsRoots[i].c_str(), isSelected))
+					{
+						m_settingsSelectedRoot = i;
+					}
+					if (isSelected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndListBox();
+			}
+
+			// Add / Remove buttons
+			if (ImGui::Button("Add Folder...", ImVec2(100, 0)))
+			{
+				std::string folder = browse_for_folder(m_hWnd, "Select Registry Root Folder");
+				if (!folder.empty())
+				{
+					// Check for duplicates
+					bool exists = false;
+					for (const auto& root : m_settingsRoots)
+					{
+						if (pnq::string::equals_nocase(root, folder))
+						{
+							exists = true;
+							break;
+						}
+					}
+					if (!exists)
+					{
+						m_settingsRoots.push_back(folder);
+						m_settingsSelectedRoot = static_cast<int>(m_settingsRoots.size()) - 1;
+					}
+				}
+			}
+			ImGui::SameLine();
+			ImGui::BeginDisabled(m_settingsSelectedRoot < 0 || m_settingsSelectedRoot >= static_cast<int>(m_settingsRoots.size()));
+			if (ImGui::Button("Remove", ImVec2(80, 0)))
+			{
+				m_settingsRoots.erase(m_settingsRoots.begin() + m_settingsSelectedRoot);
+				if (m_settingsSelectedRoot >= static_cast<int>(m_settingsRoots.size()))
+					m_settingsSelectedRoot = static_cast<int>(m_settingsRoots.size()) - 1;
+			}
+			ImGui::EndDisabled();
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::Spacing();
+
+			// OK / Cancel
+			if (ImGui::Button("OK", ImVec2(80, 0)))
+			{
+				save_settings = true;
+				open = false;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(80, 0)))
+			{
+				open = false;
+			}
+		}
+		ImGui::End();
+
+		if (!open)
+		{
+			if (save_settings)
+			{
+				// Update settings
+				std::string roots_str;
+				for (size_t i = 0; i < m_settingsRoots.size(); ++i)
+				{
+					if (i > 0)
+						roots_str += ";";
+					roots_str += m_settingsRoots[i];
+				}
+				config::theSettings.registry.roots.set(roots_str);
+				config::theSettings.save();
+
+				// Update runtime state
+				m_state.registry_roots.clear();
+				for (const auto& root : m_settingsRoots)
+					m_state.registry_roots.push_back(root);
+
+				// Trigger refresh
+				m_state.is_refreshing = true;
+				m_state.status_message = "Scanning for snapshots...";
+				m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
+			}
+
+			m_showSettingsDialog = false;
+			m_settingsRoots.clear();
+			m_settingsSelectedRoot = -1;
 		}
 	}
 

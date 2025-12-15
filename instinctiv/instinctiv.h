@@ -60,6 +60,8 @@ namespace instinctiv
 		void render_first_run_dialog();
 		void render_progress_dialog();
 		void render_font_dialog();
+		void render_backup_dialog();
+		void render_settings_dialog();
 
 		// Title bar helpers
 		bool is_window_maximized() const;
@@ -131,6 +133,18 @@ namespace instinctiv
 		std::vector<std::string> m_availableFonts;
 		int m_selectedFontIndex{ -1 };
 		std::string m_originalFontName;  // To restore on Cancel
+
+		// Backup options dialog
+		bool m_showBackupDialog{ false };
+		insti::Project* m_backupProject{ nullptr };  // Project to backup (not owned, just reference)
+		char m_backupDescription[256]{};
+		std::string m_backupFilename;  // Auto-generated filename (read-only display)
+		int m_backupSelectedRoot{ 0 };  // Index of selected root for saving
+
+		// Settings dialog
+		bool m_showSettingsDialog{ false };
+		std::vector<std::string> m_settingsRoots;  // Editable copy of registry roots
+		int m_settingsSelectedRoot{ -1 };  // Selected root in list
 
 		// Custom title bar
 		DWORD m_accentColor{ RGB(0, 120, 212) };  // Windows accent color

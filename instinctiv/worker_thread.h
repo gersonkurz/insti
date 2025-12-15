@@ -81,16 +81,18 @@ namespace instinctiv
 	class StartBackup final
 	{
 	public:
-		StartBackup(insti::SnapshotRegistry* snapshot_registry, insti::Project* project, std::string_view path)
+		StartBackup(insti::SnapshotRegistry* snapshot_registry, insti::Project* project, std::string_view path, std::string_view description = "")
 			: m_snapshot_registry{ snapshot_registry }
 			, m_project{ project }
 			, m_output_path{ path }
+			, m_description{ description }
 		{
 		}
 
 		pnq::RefCountedInstance<insti::Project*> m_project;
 		pnq::RefCountedInstance<insti::SnapshotRegistry*> m_snapshot_registry;
 		std::string m_output_path;
+		std::string m_description;
 	};
 
 	class StartRestore final
