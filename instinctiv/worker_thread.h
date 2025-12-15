@@ -124,13 +124,24 @@ namespace instinctiv
 	class StartVerify final
 	{
 	public:
+		/// Project verification (existence check only)
 		StartVerify(insti::SnapshotRegistry* snapshot_registry, insti::Blueprint* bp)
 			: m_snapshot_registry{ snapshot_registry }
 			, m_blueprint{ bp }
 		{
 		}
+
+		/// Instance verification (file-level comparison)
+		StartVerify(insti::SnapshotRegistry* snapshot_registry, insti::Blueprint* bp, std::string_view archive_path)
+			: m_snapshot_registry{ snapshot_registry }
+			, m_blueprint{ bp }
+			, m_archive_path{ archive_path }
+		{
+		}
+
 		pnq::RefCountedInstance<insti::Blueprint*> m_blueprint;
 		pnq::RefCountedInstance<insti::SnapshotRegistry*> m_snapshot_registry;
+		std::string m_archive_path;  // Empty for project verification, set for instance verification
 	};
 
 	struct RefreshRegistry

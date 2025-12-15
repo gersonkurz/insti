@@ -257,7 +257,7 @@ void WorkerThread::do_clean(const StartClean& cmd)
 
     std::string msg = cmd.m_simulate
         ? (success ? "Dry-run completed" : "Dry-run failed")
-        : (success ? "Clean completed" : "Clean failed");
+        : (success ? "Uninstall completed" : "Uninstall failed");
 
     // Pass project name so UI can update installation registry
     // Empty snapshot_path signals this is a clean (not backup/restore)
@@ -272,7 +272,28 @@ void WorkerThread::do_verify(const StartVerify& cmd)
 
     WorkerCallback callback{ this };
     insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
-    auto results = orc.verify(cmd.m_blueprint.get(), &callback);
+
+    // For instance verification, open reader for file-level comparison
+    insti::ZipSnapshotReader reader;
+    insti::SnapshotReader* reader_ptr = nullptr;
+
+    if (!cmd.m_archive_path.empty())
+    {
+        if (reader.open(cmd.m_archive_path))
+        {
+            reader_ptr = &reader;
+            post_to_ui(LogEntry{LogEntry::Level::Info, "Verifying against: " + cmd.m_archive_path});
+        }
+        else
+        {
+            post_to_ui(LogEntry{LogEntry::Level::Error, "Failed to open snapshot: " + cmd.m_archive_path});
+        }
+    }
+
+    auto results = orc.verify(cmd.m_blueprint.get(), &callback, reader_ptr);
+
+    if (reader_ptr)
+        reader.close();
 
     post_to_ui(VerifyComplete{std::move(results)});
     m_busy.store(false);

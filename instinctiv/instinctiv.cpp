@@ -148,6 +148,50 @@ namespace instinctiv
 
 		switch (msg)
 		{
+		case WM_NCCALCSIZE:
+			// Return 0 to remove the entire non-client area (title bar, borders)
+			// This eliminates the white pixels at the top
+			if (wParam == TRUE)
+			{
+				// When wParam is TRUE, lParam points to NCCALCSIZE_PARAMS
+				// Returning 0 tells Windows to use the entire window as client area
+				return 0;
+			}
+			return DefWindowProcW(hWnd, msg, wParam, lParam);
+
+		case WM_NCHITTEST:
+		{
+			// Handle hit testing for resize borders since we removed the non-client area
+			POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+			ScreenToClient(hWnd, &pt);
+
+			RECT rc;
+			GetClientRect(hWnd, &rc);
+
+			const int borderWidth = 5; // Resize border thickness
+
+			bool onLeft = pt.x < borderWidth;
+			bool onRight = pt.x >= rc.right - borderWidth;
+			bool onTop = pt.y < borderWidth;
+			bool onBottom = pt.y >= rc.bottom - borderWidth;
+
+			if (onTop && onLeft) return HTTOPLEFT;
+			if (onTop && onRight) return HTTOPRIGHT;
+			if (onBottom && onLeft) return HTBOTTOMLEFT;
+			if (onBottom && onRight) return HTBOTTOMRIGHT;
+			if (onLeft) return HTLEFT;
+			if (onRight) return HTRIGHT;
+			if (onTop) return HTTOP;
+			if (onBottom) return HTBOTTOM;
+
+			return HTCLIENT;
+		}
+
+		case WM_ACTIVATE:
+		case WM_ACTIVATEAPP:
+			m_windowFocused = (wParam != 0);
+			return 0;
+
 		case WM_SIZE:
 			if (wParam == SIZE_MINIMIZED)
 				return 0;
@@ -235,11 +279,48 @@ namespace instinctiv
 		// Process worker thread messages
 		process_worker_messages();
 
-		// UI rendering
+		ImGuiIO& io = ImGui::GetIO();
+		ImGuiViewport* viewport = ImGui::GetMainViewport();
+		const float titleBarHeight = static_cast<float>(GetSystemMetrics(SM_CYCAPTION));
+
+		// Render custom title bar first
+		const float titleBarOverlap = 2.0f;
+		{
+			ImGui::SetNextWindowPos(viewport->Pos);
+			ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, titleBarHeight + titleBarOverlap));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+			ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+			ImGuiWindowFlags titleBarFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+			                                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
+			                                 ImGuiWindowFlags_NoBringToFrontOnFocus;
+			ImGui::Begin("TitleBar", nullptr, titleBarFlags);
+			render_title_bar();
+			ImGui::End();
+			ImGui::PopStyleColor(1);
+			ImGui::PopStyleVar(2);
+		}
+
+		// Main window below title bar - start slightly higher to account for overlap
+		const float menuBarOffset = 2.0f;  // Overlap with title bar
+		ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + titleBarHeight - menuBarOffset));
+		ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, viewport->Size.y - titleBarHeight + menuBarOffset));
+
+		// Add vertical padding for the menu bar
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 8));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+
+		ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+		                                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
+		                                ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_MenuBar;
+		ImGui::Begin("##MainWindow", nullptr, window_flags);
+
+		// Render menu bar (ImGui positions this automatically at the top of this window)
 		render_menu_bar();
 
+		ImGui::PopStyleVar(2); // Pop FramePadding and WindowBorderSize
+
 		// Handle Ctrl+Mousewheel for font size changes
-		ImGuiIO& io = ImGui::GetIO();
 		if (io.KeyCtrl && io.MouseWheel != 0.0f)
 		{
 			auto& appSettings = config::theSettings.application;
@@ -259,16 +340,6 @@ namespace instinctiv
 				m_pendingFontSize = newSize;
 			}
 		}
-
-		// Main window content
-		ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()));
-		ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, io.DisplaySize.y - ImGui::GetFrameHeight()));
-		ImGui::Begin("##MainContent", nullptr,
-			ImGuiWindowFlags_NoTitleBar |
-			ImGuiWindowFlags_NoResize |
-			ImGuiWindowFlags_NoMove |
-			ImGuiWindowFlags_NoCollapse |
-			ImGuiWindowFlags_NoBringToFrontOnFocus);
 
 		render_toolbar();
 		ImGui::Separator();
@@ -343,7 +414,7 @@ namespace instinctiv
 
 	void Instinctiv::render_menu_bar()
 	{
-		if (!ImGui::BeginMainMenuBar())
+		if (!ImGui::BeginMenuBar())
 			return;
 
 		if (ImGui::BeginMenu("File"))
@@ -411,7 +482,7 @@ namespace instinctiv
 			ImGui::EndMenu();
 		}
 
-		ImGui::EndMainMenuBar();
+		ImGui::EndMenuBar();
 	}
 
 	void Instinctiv::render_toolbar()
@@ -456,7 +527,7 @@ namespace instinctiv
 		}
 
 		// Project selector combobox
-		ImGui::SetNextItemWidth(200.0f);
+		ImGui::SetNextItemWidth(400.0f);
 		if (ImGui::BeginCombo("##Project", current_project_name.c_str()))
 		{
 			if (projects)
@@ -504,7 +575,6 @@ namespace instinctiv
 
 		// Operation buttons
 		bool has_project = (m_current_project != nullptr);
-		bool has_instance = (m_state.selected_instance != nullptr);
 		bool is_busy = m_state.worker->is_busy();
 
 		// Backup button - requires a project selected
@@ -519,35 +589,23 @@ namespace instinctiv
 
 		ImGui::SameLine();
 
-		// Restore button - requires an instance selected in the table
-		ImGui::BeginDisabled(!has_instance || is_busy);
-		if (ImGui::Button("Restore"))
+		// Uninstall button - requires a project selected
+		ImGui::BeginDisabled(!has_project || is_busy);
+		if (ImGui::Button("Uninstall"))
 		{
-			start_restore_from_instance(m_state.selected_instance);
+			start_clean_from_project(m_current_project);
 		}
 		ImGui::EndDisabled();
-		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_instance)
-			ImGui::SetTooltip("Select a snapshot from the table first");
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_project)
+			ImGui::SetTooltip("Select a project first");
 
 		ImGui::SameLine();
 
-		// Clean button - requires a project selected
+		// Verify button - requires a project selected
 		ImGui::BeginDisabled(!has_project || is_busy);
-		if (ImGui::Button("Clean"))
+		if (ImGui::Button("Verify"))
 		{
-			m_state.progress_operation = m_state.dry_run ? "Dry-run Clean" : "Clean";
-			m_state.progress_phase = "Starting";
-			m_state.progress_detail = "";
-			m_state.progress_percent = -1;
-			m_state.progress_log.clear();
-			m_state.show_progress_dialog = true;
-
-			if (m_state.active_blueprint)
-				PNQ_RELEASE(m_state.active_blueprint);
-			m_state.active_blueprint = m_current_project;
-			PNQ_ADDREF(m_state.active_blueprint);
-
-			m_state.worker->post(StartClean{ m_state.m_snapshot_registry, m_current_project, m_state.dry_run });
+			start_verify_from_project(m_current_project);
 		}
 		ImGui::EndDisabled();
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_project)
@@ -633,7 +691,7 @@ namespace instinctiv
 
 		// Render table
 		float table_width = ImGui::GetContentRegionAvail().x;
-		ImGui::BeginChild("SnapshotList", ImVec2(table_width, 0), true);
+		ImGui::BeginChild("SnapshotList", ImVec2(table_width, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
 
 		if (m_filtered_instances.empty())
 		{
@@ -642,17 +700,18 @@ namespace instinctiv
 		else
 		{
 			ImGuiTableFlags table_flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-				ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp;
+				ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable;
 
 			if (ImGui::BeginTable("SnapshotTable", 7, table_flags))
 			{
-				ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-				ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-				ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-				ImGui::TableSetupColumn("Install Directory", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-				ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-				ImGui::TableSetupColumn("Machine", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-				ImGui::TableSetupColumn("User", ImGuiTableColumnFlags_WidthFixed, 1.0f);
+				// Use fixed initial widths that can be resized - enables horizontal scrolling
+				ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+				ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+				ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+				ImGui::TableSetupColumn("Install Directory", ImGuiTableColumnFlags_WidthFixed, 250.0f);
+				ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+				ImGui::TableSetupColumn("Machine", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+				ImGui::TableSetupColumn("User", ImGuiTableColumnFlags_WidthFixed, 100.0f);
 				ImGui::TableSetupScrollFreeze(0, 1);
 				ImGui::TableHeadersRow();
 
@@ -672,9 +731,59 @@ namespace instinctiv
 					// Name column with selection
 					ImGui::TableNextColumn();
 					bool is_selected = (m_state.selected_instance == entry);
-					ImGuiSelectableFlags sel_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap;
+					ImGuiSelectableFlags sel_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick;
 					if (ImGui::Selectable(entry->project_name().c_str(), is_selected, sel_flags))
+					{
 						m_state.selected_instance = entry;
+
+						// Double-click opens the zip file with default shell action
+						if (ImGui::IsMouseDoubleClicked(0))
+						{
+							ShellExecuteW(m_hWnd, nullptr,
+								pnq::win32::wstr_param{ entry->m_snapshot_path },
+								nullptr, nullptr, SW_SHOWNORMAL);
+						}
+					}
+
+					// Right-click context menu
+					if (ImGui::BeginPopupContextItem())
+					{
+						bool is_busy = m_state.worker->is_busy();
+
+						if (ImGui::MenuItem("Restore", nullptr, false, !is_busy))
+						{
+							start_restore_from_instance(entry);
+						}
+
+						if (ImGui::MenuItem("Verify", nullptr, false, !is_busy))
+						{
+							start_verify_from_instance(entry);
+						}
+
+						ImGui::Separator();
+
+						if (ImGui::MenuItem("Backup (Refresh)", nullptr, false, !is_busy))
+						{
+							start_backup_from_instance(entry);
+						}
+
+						if (ImGui::MenuItem("Uninstall", nullptr, false, !is_busy))
+						{
+							start_clean_from_instance(entry);
+						}
+
+						ImGui::Separator();
+
+						if (ImGui::MenuItem("Open Containing Folder"))
+						{
+							// Open explorer to the folder containing this snapshot
+							std::filesystem::path snapshot_path{ entry->m_snapshot_path };
+							std::filesystem::path parent = snapshot_path.parent_path();
+							ShellExecuteW(m_hWnd, L"explore", parent.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+						}
+
+						ImGui::EndPopup();
+					}
 
 					// Other columns
 					ImGui::TableNextColumn();
@@ -866,11 +975,13 @@ namespace instinctiv
 
 		const auto strWindowTitle{ std::format("instinctiv {}", insti::version()) };
 
+		// Create window with modern borderless style
+		// WS_POPUP = no title bar, WS_THICKFRAME = resizable borders
 		m_hWnd = CreateWindowExW(
 			0,
 			wc.lpszClassName,
 			pnq::win32::wstr_param{ strWindowTitle },
-			WS_OVERLAPPEDWINDOW,
+			WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU,
 			posX, posY,
 			width, height,
 			nullptr, nullptr,
@@ -881,6 +992,16 @@ namespace instinctiv
 		{
 			PNQ_LOG_WIN_ERROR(GetLastError(), "CreateWindowEx() failed");
 			return false;
+		}
+
+		// Query Windows accent color for custom title bar
+		DWORD accentColor = 0;
+		BOOL opaque = FALSE;
+		HRESULT hr = DwmGetColorizationColor(&accentColor, &opaque);
+		if (SUCCEEDED(hr))
+		{
+			m_accentColor = accentColor;
+			spdlog::debug("Windows accent color: 0x{:08X}", accentColor);
 		}
 
 		// Enable drag-and-drop
@@ -1170,6 +1291,159 @@ namespace instinctiv
 		style.GrabRounding = 4.0f;
 	}
 
+	bool Instinctiv::is_window_maximized() const
+	{
+		WINDOWPLACEMENT wp{};
+		wp.length = sizeof(WINDOWPLACEMENT);
+		if (!GetWindowPlacement(m_hWnd, &wp))
+			return false;
+		return wp.showCmd == SW_SHOWMAXIMIZED;
+	}
+
+	void Instinctiv::render_title_bar()
+	{
+		const float titleBarHeight = static_cast<float>(GetSystemMetrics(SM_CYCAPTION));
+		const float buttonWidth = 46.0f;
+		const float buttonHeight = titleBarHeight;
+
+		ImGuiIO& io = ImGui::GetIO();
+		ImVec2 titleBarMin = ImGui::GetWindowPos();
+		ImVec2 titleBarMax = ImVec2(titleBarMin.x + ImGui::GetWindowSize().x, titleBarMin.y + titleBarHeight);
+
+		// Draw title bar background with accent color when focused
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		ImVec4 titleBarColor;
+
+		if (m_windowFocused)
+		{
+			// Use Windows accent color when focused
+			float r = GetRValue(m_accentColor) / 255.0f;
+			float g = GetGValue(m_accentColor) / 255.0f;
+			float b = GetBValue(m_accentColor) / 255.0f;
+			titleBarColor = ImVec4(r, g, b, 1.0f);
+		}
+		else
+		{
+			// Use neutral gray when unfocused
+			titleBarColor = ImVec4(0.2f, 0.2f, 0.2f, 1.0f);
+		}
+
+		drawList->AddRectFilled(titleBarMin, titleBarMax, ImGui::ColorConvertFloat4ToU32(titleBarColor));
+
+		// Handle window dragging
+		ImVec2 mousePos = io.MousePos;
+		bool mouseInTitleBar = mousePos.x >= titleBarMin.x && mousePos.x <= titleBarMax.x &&
+			mousePos.y >= titleBarMin.y && mousePos.y <= titleBarMax.y;
+
+		// Check if mouse is NOT over window control buttons (rightmost 3 buttons)
+		float buttonsAreaStart = titleBarMax.x - (buttonWidth * 3);
+		bool mouseInButtons = mousePos.x >= buttonsAreaStart && mousePos.x <= titleBarMax.x &&
+			mousePos.y >= titleBarMin.y && mousePos.y <= titleBarMax.y;
+
+		if (mouseInTitleBar && !mouseInButtons && ImGui::IsMouseClicked(0))
+		{
+			// Send WM_NCLBUTTONDOWN to enable native window dragging and snapping
+			ReleaseCapture();
+			SendMessageW(m_hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+		}
+
+		// Double-click to maximize/restore
+		if (mouseInTitleBar && !mouseInButtons && ImGui::IsMouseDoubleClicked(0))
+		{
+			ShowWindow(m_hWnd, is_window_maximized() ? SW_RESTORE : SW_MAXIMIZE);
+		}
+
+		// Draw window title on the left
+		ImGui::SetCursorScreenPos(ImVec2(titleBarMin.x + 10.0f, titleBarMin.y + (titleBarHeight - ImGui::GetTextLineHeight()) * 0.5f));
+		ImGui::Text(std::format("instinctiv {}", insti::version()).c_str());
+
+		// Window control buttons (right side)
+		const ImU32 iconColor = IM_COL32(255, 255, 255, 255);
+		const float iconSize = 10.0f;
+		const float iconThickness = 1.0f;
+
+		// Button positions
+		ImVec2 minBtnPos = ImVec2(titleBarMax.x - buttonWidth * 3, titleBarMin.y);
+		ImVec2 maxBtnPos = ImVec2(titleBarMax.x - buttonWidth * 2, titleBarMin.y);
+		ImVec2 closeBtnPos = ImVec2(titleBarMax.x - buttonWidth, titleBarMin.y);
+
+		bool minHovered = mousePos.x >= minBtnPos.x && mousePos.x < minBtnPos.x + buttonWidth &&
+		                  mousePos.y >= minBtnPos.y && mousePos.y < minBtnPos.y + buttonHeight;
+		bool maxHovered = mousePos.x >= maxBtnPos.x && mousePos.x < maxBtnPos.x + buttonWidth &&
+		                  mousePos.y >= maxBtnPos.y && mousePos.y < maxBtnPos.y + buttonHeight;
+		bool closeHovered = mousePos.x >= closeBtnPos.x && mousePos.x < closeBtnPos.x + buttonWidth &&
+		                    mousePos.y >= closeBtnPos.y && mousePos.y < closeBtnPos.y + buttonHeight;
+
+		// Draw hover backgrounds
+		if (minHovered)
+			drawList->AddRectFilled(minBtnPos, ImVec2(minBtnPos.x + buttonWidth, minBtnPos.y + buttonHeight), IM_COL32(255, 255, 255, 30));
+		if (maxHovered)
+			drawList->AddRectFilled(maxBtnPos, ImVec2(maxBtnPos.x + buttonWidth, maxBtnPos.y + buttonHeight), IM_COL32(255, 255, 255, 30));
+		if (closeHovered)
+			drawList->AddRectFilled(closeBtnPos, ImVec2(closeBtnPos.x + buttonWidth, closeBtnPos.y + buttonHeight), IM_COL32(196, 43, 28, 255));
+
+		// Minimize icon (horizontal line)
+		{
+			ImVec2 center = ImVec2(minBtnPos.x + buttonWidth * 0.5f, minBtnPos.y + buttonHeight * 0.5f);
+			drawList->AddLine(
+				ImVec2(center.x - iconSize * 0.5f, center.y),
+				ImVec2(center.x + iconSize * 0.5f, center.y),
+				iconColor, iconThickness);
+		}
+
+		// Maximize/Restore icon
+		bool isMaximized = is_window_maximized();
+		{
+			ImVec2 center = ImVec2(maxBtnPos.x + buttonWidth * 0.5f, maxBtnPos.y + buttonHeight * 0.5f);
+			if (isMaximized)
+			{
+				// Restore icon: two overlapping rectangles
+				float smallSize = iconSize * 0.7f;
+				drawList->AddRect(
+					ImVec2(center.x - smallSize * 0.5f + 2, center.y - smallSize * 0.5f - 2),
+					ImVec2(center.x + smallSize * 0.5f + 2, center.y + smallSize * 0.5f - 2),
+					iconColor, 0.0f, 0, iconThickness);
+				drawList->AddRect(
+					ImVec2(center.x - smallSize * 0.5f - 1, center.y - smallSize * 0.5f + 1),
+					ImVec2(center.x + smallSize * 0.5f - 1, center.y + smallSize * 0.5f + 1),
+					iconColor, 0.0f, 0, iconThickness);
+			}
+			else
+			{
+				// Maximize icon: single rectangle
+				drawList->AddRect(
+					ImVec2(center.x - iconSize * 0.5f, center.y - iconSize * 0.5f),
+					ImVec2(center.x + iconSize * 0.5f, center.y + iconSize * 0.5f),
+					iconColor, 0.0f, 0, iconThickness);
+			}
+		}
+
+		// Close icon (X)
+		{
+			ImVec2 center = ImVec2(closeBtnPos.x + buttonWidth * 0.5f, closeBtnPos.y + buttonHeight * 0.5f);
+			float halfSize = iconSize * 0.5f;
+			drawList->AddLine(
+				ImVec2(center.x - halfSize, center.y - halfSize),
+				ImVec2(center.x + halfSize, center.y + halfSize),
+				iconColor, iconThickness);
+			drawList->AddLine(
+				ImVec2(center.x + halfSize, center.y - halfSize),
+				ImVec2(center.x - halfSize, center.y + halfSize),
+				iconColor, iconThickness);
+		}
+
+		// Handle button clicks
+		if (ImGui::IsMouseClicked(0))
+		{
+			if (minHovered)
+				ShowWindow(m_hWnd, SW_MINIMIZE);
+			else if (maxHovered)
+				ShowWindow(m_hWnd, isMaximized ? SW_RESTORE : SW_MAXIMIZE);
+			else if (closeHovered)
+				DestroyWindow(m_hWnd);
+		}
+	}
+
 	// Initialize configuration
 	void Instinctiv::initialize_config()
 	{
@@ -1259,14 +1533,19 @@ namespace instinctiv
 					m_state.progress_percent = m.success ? 100 : -1;
 					m_state.progress_log.push_back(m.message);
 
-
-					// Notify new registry of operation completion (invalidates installation cache)
+					// Notify registry of operation completion
 					if (m.success && m_state.m_snapshot_registry)
 					{
 						if (m_state.progress_operation == "Restore")
 							m_state.m_snapshot_registry->notify_restore_complete("");
-						else if (m_state.progress_operation == "Clean")
+						else if (m_state.progress_operation == "Uninstall")
 							m_state.m_snapshot_registry->notify_clean_complete();
+						else if (m_state.progress_operation == "Backup" || m_state.progress_operation == "Refresh Snapshot")
+						{
+							// Refresh registry to pick up new/updated snapshot
+							m_state.is_refreshing = true;
+							m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
+						}
 					}
 				}
 				else if constexpr (std::is_same_v<T, ErrorDecision>)
@@ -1288,6 +1567,74 @@ namespace instinctiv
 
 					// Send Continue decision to overwrite
 					m_state.worker->post(DecisionResponse{ insti::IActionCallback::Decision::Continue });
+				}
+				else if constexpr (std::is_same_v<T, VerifyComplete>)
+				{
+					// Process verification results
+					int match_count = 0, mismatch_count = 0, missing_count = 0, extra_count = 0;
+					int total_file_match = 0, total_file_mismatch = 0, total_file_missing = 0, total_file_extra = 0;
+
+					for (const auto& result : m.results)
+					{
+						const char* status_str = "[?]";
+						switch (result.status)
+						{
+						case insti::VerifyResult::Status::Match:
+							status_str = "[MATCH]";
+							++match_count;
+							break;
+						case insti::VerifyResult::Status::Mismatch:
+							status_str = "[MISMATCH]";
+							++mismatch_count;
+							break;
+						case insti::VerifyResult::Status::Missing:
+							status_str = "[MISSING]";
+							++missing_count;
+							break;
+						case insti::VerifyResult::Status::Extra:
+							status_str = "[EXTRA]";
+							++extra_count;
+							break;
+						}
+
+						m_state.progress_log.push_back(std::format("{} {}", status_str, result.detail));
+
+						// List individual files (UI always shows details)
+						for (const auto& f : result.mismatched_files)
+							m_state.progress_log.push_back(std::format("    DIFFER: {}", f));
+						for (const auto& f : result.missing_files)
+							m_state.progress_log.push_back(std::format("    MISSING: {}", f));
+						for (const auto& f : result.extra_files)
+							m_state.progress_log.push_back(std::format("    EXTRA: {}", f));
+
+						// Aggregate file counts
+						total_file_match += result.file_match_count;
+						total_file_mismatch += result.file_mismatch_count;
+						total_file_missing += result.file_missing_count;
+						total_file_extra += result.file_extra_count;
+					}
+
+					// Summary
+					m_state.progress_log.push_back("");
+					m_state.progress_log.push_back(std::format("Resource summary: {} match, {} mismatch, {} missing, {} extra",
+						match_count, mismatch_count, missing_count, extra_count));
+
+					if (total_file_match > 0 || total_file_mismatch > 0 || total_file_missing > 0 || total_file_extra > 0)
+					{
+						m_state.progress_log.push_back(std::format("File summary: {} match, {} differ, {} missing, {} extra",
+							total_file_match, total_file_mismatch, total_file_missing, total_file_extra));
+					}
+
+					// Overall judgment
+					if (mismatch_count == 0 && missing_count == 0 && extra_count == 0)
+						m_state.progress_log.push_back("Status: INSTALLED");
+					else if (match_count == 0)
+						m_state.progress_log.push_back("Status: NOT INSTALLED");
+					else
+						m_state.progress_log.push_back("Status: PARTIALLY INSTALLED");
+
+					m_state.progress_phase = "Complete";
+					m_state.progress_percent = 100;
 				}
 				// Other message types handled in future milestones
 				}, *msg);
@@ -1385,6 +1732,134 @@ namespace instinctiv
 		m_state.worker->post(StartBackup{ m_state.m_snapshot_registry, blueprint, output_path.string() });
 	}
 
+	void Instinctiv::start_clean_from_project(insti::Project* project)
+	{
+		if (!project)
+			return;
+
+		spdlog::info("start_clean_from_project: {}", project->project_name());
+
+		// Setup progress dialog
+		m_state.progress_operation = m_state.dry_run ? "Dry-run Uninstall" : "Uninstall";
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Uninstalling: " + project->project_name());
+		m_state.show_progress_dialog = true;
+
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = project;
+		PNQ_ADDREF(m_state.active_blueprint);
+
+		m_state.worker->post(StartClean{ m_state.m_snapshot_registry, project, m_state.dry_run });
+	}
+
+	void Instinctiv::start_verify_from_project(insti::Project* project)
+	{
+		if (!project)
+			return;
+
+		spdlog::info("start_verify_from_project: {}", project->project_name());
+
+		// Setup progress dialog
+		m_state.progress_operation = "Verify";
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Verifying: " + project->project_name());
+		m_state.progress_log.push_back("(Project verification - checking resource existence)");
+		m_state.show_progress_dialog = true;
+
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = project;
+		PNQ_ADDREF(m_state.active_blueprint);
+
+		// Project verification - no archive path
+		m_state.worker->post(StartVerify{ m_state.m_snapshot_registry, project });
+	}
+
+	void Instinctiv::start_backup_from_instance(insti::Instance* instance)
+	{
+		if (!instance)
+			return;
+
+		spdlog::info("start_backup_from_instance (refresh): {}", instance->m_snapshot_path);
+
+		// Setup progress dialog
+		m_state.progress_operation = "Refresh Snapshot";
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Refreshing: " + instance->project_name());
+		m_state.progress_log.push_back("Output: " + instance->m_snapshot_path);
+		m_state.show_progress_dialog = true;
+
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = instance;
+		PNQ_ADDREF(m_state.active_blueprint);
+
+		// Use the instance's archive path as output (refresh/overwrite)
+		m_state.worker->post(StartBackup{ m_state.m_snapshot_registry, instance, instance->m_snapshot_path });
+	}
+
+	void Instinctiv::start_clean_from_instance(insti::Instance* instance)
+	{
+		if (!instance)
+			return;
+
+		spdlog::info("start_clean_from_instance: {}", instance->m_snapshot_path);
+
+		// Setup progress dialog
+		m_state.progress_operation = m_state.dry_run ? "Dry-run Uninstall" : "Uninstall";
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Uninstalling: " + instance->project_name());
+		m_state.progress_log.push_back("(Based on instance: " + instance->m_snapshot_path + ")");
+		m_state.show_progress_dialog = true;
+
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = instance;
+		PNQ_ADDREF(m_state.active_blueprint);
+
+		m_state.worker->post(StartClean{ m_state.m_snapshot_registry, instance, m_state.dry_run });
+	}
+
+	void Instinctiv::start_verify_from_instance(insti::Instance* instance)
+	{
+		if (!instance)
+			return;
+
+		spdlog::info("start_verify_from_instance: {}", instance->m_snapshot_path);
+
+		// Setup progress dialog
+		m_state.progress_operation = "Verify";
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Verifying: " + instance->project_name());
+		m_state.progress_log.push_back("(Instance verification - comparing file contents)");
+		m_state.progress_log.push_back("Against: " + instance->m_snapshot_path);
+		m_state.show_progress_dialog = true;
+
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = instance;
+		PNQ_ADDREF(m_state.active_blueprint);
+
+		// Instance verification - pass archive path for file-level comparison
+		m_state.worker->post(StartVerify{ m_state.m_snapshot_registry, instance, instance->m_snapshot_path });
+	}
+
 	// Progress dialog during operations
 	void Instinctiv::render_progress_dialog()
 	{
@@ -1428,17 +1903,25 @@ namespace instinctiv
 			ImGui::Separator();
 			ImGui::Spacing();
 
-			// Log area
+			// Log area - use InputTextMultiline for selection/copy support
 			ImGui::Text("Log:");
-			ImGui::BeginChild("ProgressLog", ImVec2(0, -30), true);
+
+			// Build log text from entries
+			std::string log_text;
 			for (const auto& line : m_state.progress_log)
 			{
-				ImGui::TextWrapped("%s", line.c_str());
+				if (!log_text.empty())
+					log_text += '\n';
+				log_text += line;
 			}
-			// Auto-scroll to bottom
-			if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
-				ImGui::SetScrollHereY(1.0f);
-			ImGui::EndChild();
+
+			// Calculate available height for log area
+			float available_height = ImGui::GetContentRegionAvail().y - 30;
+
+			// InputTextMultiline with ReadOnly flag - allows selection and Ctrl+C
+			ImGui::InputTextMultiline("##ProgressLog", &log_text[0], log_text.size() + 1,
+				ImVec2(-FLT_MIN, available_height),
+				ImGuiInputTextFlags_ReadOnly);
 
 			// Cancel button
 			if (m_state.worker->is_busy())

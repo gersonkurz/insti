@@ -12,10 +12,14 @@
 #include <imgui_impl_dx11.h>
 
 #include <d3d11.h>
+#include <dwmapi.h>
 #include <shellapi.h>
 #include <commdlg.h>
 #include <shlobj.h>
 #include <tchar.h>
+#include <windowsx.h>  // For GET_X_LPARAM, GET_Y_LPARAM
+
+#pragma comment(lib, "dwmapi.lib")
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -49,12 +53,16 @@ namespace instinctiv
 
 		// Rendering
 		void render();
+		void render_title_bar();
 		void render_menu_bar();
 		void render_toolbar();
 		void render_snapshot_table();
 		void render_first_run_dialog();
 		void render_progress_dialog();
 		void render_font_dialog();
+
+		// Title bar helpers
+		bool is_window_maximized() const;
 
 		// Helpers
 		void handle_keyboard_shortcuts();
@@ -73,9 +81,18 @@ namespace instinctiv
 		// Worker
 		void process_worker_messages();
 
-		// Operations
+		// Operations - project-based (from toolbar buttons)
 		void start_backup_from_project(insti::Project* project);
+		void start_clean_from_project(insti::Project* project);
+		void start_verify_from_project(insti::Project* project);
+
+		// Operations - instance-based (from right-click context menu)
 		void start_restore_from_instance(insti::Instance* instance);
+		void start_backup_from_instance(insti::Instance* instance);  // Refresh snapshot
+		void start_clean_from_instance(insti::Instance* instance);
+		void start_verify_from_instance(insti::Instance* instance);
+
+		// Hook execution
 		void start_hook_execution(insti::IHook* hook);
 
 	private:
@@ -114,5 +131,9 @@ namespace instinctiv
 		std::vector<std::string> m_availableFonts;
 		int m_selectedFontIndex{ -1 };
 		std::string m_originalFontName;  // To restore on Cancel
+
+		// Custom title bar
+		DWORD m_accentColor{ RGB(0, 120, 212) };  // Windows accent color
+		bool m_windowFocused{ true };
 	};
 }

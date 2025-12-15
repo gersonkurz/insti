@@ -6,7 +6,10 @@
 #include <pnq/regis3.h>
 #include <argparse/argparse.hpp>
 #include <spdlog/spdlog.h>
+#pragma warning(push)
+#pragma warning(disable: 4244 4267)  // conversion warnings in third-party header
 #include <indicators/progress_bar.hpp>
+#pragma warning(pop)
 #include "settings.h"
 
 namespace con = pnq::console;
@@ -508,7 +511,7 @@ int cmd_clean(const std::string& source_ref, bool force)
         return 1;
     }
 
-    con::format_line("Cleaning: {} v{}", bp->project_name(), bp->project_version());
+    con::format_line("Uninstalling: {} v{}", bp->project_name(), bp->project_version());
 
     // Setup registry (needed for orchestrator)
     insti::config::theSettings.load();
@@ -526,7 +529,7 @@ int cmd_clean(const std::string& source_ref, bool force)
     if (success)
     {
         con::write_line("");
-        con::write_line("Clean complete");
+        con::write_line("Uninstall complete");
     }
 
     bp->release(REFCOUNT_DEBUG_ARGS);
@@ -968,11 +971,11 @@ int main(int argc, char* argv[])
         .default_value(false)
         .implicit_value(true);
 
-    argparse::ArgumentParser clean_cmd("clean");
-    clean_cmd.add_description("Remove resources defined in blueprint or snapshot (shutdown -> clean)");
-    clean_cmd.add_argument("source")
+    argparse::ArgumentParser uninstall_cmd("uninstall");
+    uninstall_cmd.add_description("Remove installed resources (shutdown -> uninstall)");
+    uninstall_cmd.add_argument("source")
         .help("Path to blueprint XML or snapshot (.zip), or A/B/C or 1/2/3");
-    clean_cmd.add_argument("-f", "--force")
+    uninstall_cmd.add_argument("-f", "--force")
         .help("Run force-only shutdown hooks (aggressive termination)")
         .default_value(false)
         .implicit_value(true);
@@ -1006,7 +1009,7 @@ int main(int argc, char* argv[])
 
     program.add_subparser(backup_cmd);
     program.add_subparser(restore_cmd);
-    program.add_subparser(clean_cmd);
+    program.add_subparser(uninstall_cmd);
     program.add_subparser(verify_cmd);
     program.add_subparser(startup_cmd);
     program.add_subparser(shutdown_cmd);
@@ -1044,9 +1047,9 @@ int main(int argc, char* argv[])
                           restore_cmd.get<std::vector<std::string>>("--var"),
                           restore_cmd.get<bool>("--force"));
 
-    if (program.is_subcommand_used("clean"))
-        return cmd_clean(clean_cmd.get<std::string>("source"),
-                        clean_cmd.get<bool>("--force"));
+    if (program.is_subcommand_used("uninstall"))
+        return cmd_clean(uninstall_cmd.get<std::string>("source"),
+                        uninstall_cmd.get<bool>("--force"));
 
     if (program.is_subcommand_used("verify"))
         return cmd_verify(verify_cmd.get<std::string>("source"),
