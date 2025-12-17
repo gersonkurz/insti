@@ -338,6 +338,46 @@ namespace insti
 			return results;
 		}
 
+	bool Orchestrator::run_startup(const Blueprint* bp, IActionCallback* cb, bool force)
+	{
+		if (!bp)
+			return false;
+
+		bool skip_all = false;
+		const auto& vars = bp->resolved_variables();
+
+		if (cb)
+			cb->on_progress("Startup", "Running hooks...", -1);
+
+		if (!run_lifecycle_hooks(bp->startup_hooks(), "Startup", vars, cb, skip_all, force))
+			return false;
+
+		if (cb)
+			cb->on_progress("Startup", "Complete", 100);
+
+		return true;
+	}
+
+	bool Orchestrator::run_shutdown(const Blueprint* bp, IActionCallback* cb, bool force)
+	{
+		if (!bp)
+			return false;
+
+		bool skip_all = false;
+		const auto& vars = bp->resolved_variables();
+
+		if (cb)
+			cb->on_progress("Shutdown", "Running hooks...", -1);
+
+		if (!run_lifecycle_hooks(bp->shutdown_hooks(), "Shutdown", vars, cb, skip_all, force))
+			return false;
+
+		if (cb)
+			cb->on_progress("Shutdown", "Complete", 100);
+
+		return true;
+	}
+
 	// =============================================================================
 	// AbortOnErrorCallback
 	// =============================================================================

@@ -82,6 +82,9 @@
     <ClCompile Include="src\hooks\substitute.cpp">
       <Filter>src\hooks</Filter>
     </ClCompile>
+    <ClCompile Include="src\hooks\service.cpp">
+      <Filter>src\hooks</Filter>
+    </ClCompile>
     <ClCompile Include="src\actions\action.cpp">
       <Filter>src\actions</Filter>
     </ClCompile>
@@ -106,7 +109,7 @@
     <ClCompile Include="src\actions\registry.cpp">
       <Filter>src\actions</Filter>
     </ClCompile>
-    <ClCompile Include="src\actions\service.cpp">
+    <ClCompile Include="src\actions\service_action.cpp">
       <Filter>src\actions</Filter>
     </ClCompile>
     <ClCompile Include="src\core\action_context.cpp">
@@ -223,6 +226,9 @@
       <Filter>include\hooks</Filter>
     </ClInclude>
     <ClInclude Include="include\insti\hooks\substitute.h">
+      <Filter>include\hooks</Filter>
+    </ClInclude>
+    <ClInclude Include="include\insti\hooks\service.h">
       <Filter>include\hooks</Filter>
     </ClInclude>
     <ClInclude Include="include\insti\snapshot\entry.h">

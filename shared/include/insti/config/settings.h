@@ -56,8 +56,8 @@ public:
         {
         }
         pnq::config::TypedValue<int32_t> fontSizeScaled{this, "FontSize", 1600}; // Font size * 100 (16.0f -> 1600)
-        pnq::config::TypedValue<std::string> fontName{this, "FontName", "Segoe UI"};
-        pnq::config::TypedValue<std::string> theme{this, "Theme", "Dark"};
+        pnq::config::TypedValue<std::string> fontName{this, "FontName", "Arial"};
+        pnq::config::TypedValue<std::string> theme{this, "Theme", "Tomorrow Night Blue"};
         pnq::config::TypedValue<std::string> lastBlueprint{this, "LastBlueprint", ""};
     } application{this};
 

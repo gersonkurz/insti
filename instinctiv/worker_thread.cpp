@@ -167,6 +167,10 @@ void WorkerThread::process_message(const WorkerMessage& msg)
             do_verify(arg);
         else if constexpr (std::is_same_v<T, StartHook>)
             do_hook(arg);
+        else if constexpr (std::is_same_v<T, StartStartup>)
+            do_startup(arg);
+        else if constexpr (std::is_same_v<T, StartShutdown>)
+            do_shutdown(arg);
         else if constexpr (std::is_same_v<T, RefreshRegistry>)
             do_refresh_registry(arg);
         else if constexpr (std::is_same_v<T, ShutdownWorker>)
@@ -316,6 +320,50 @@ void WorkerThread::do_hook(const StartHook& cmd)
     post_to_ui(OperationComplete{
         success,
         success ? ("Hook '" + hook_name + "' completed") : ("Hook '" + hook_name + "' failed"),
+        blueprint->project_name()
+    });
+    m_busy.store(false);
+}
+
+void WorkerThread::do_startup(const StartStartup& cmd)
+{
+    m_busy.store(true);
+    m_cancel_requested.store(false);
+
+    auto* blueprint = cmd.m_blueprint.get();
+
+    post_to_ui(Progress{"Startup", "Running hooks...", -1});
+    post_to_ui(LogEntry{LogEntry::Level::Info, "Running startup hooks for: " + blueprint->project_name()});
+
+    WorkerCallback callback(this);
+    insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
+    bool success = orc.run_startup(blueprint, &callback);
+
+    post_to_ui(OperationComplete{
+        success,
+        success ? "Startup completed" : "Startup failed",
+        blueprint->project_name()
+    });
+    m_busy.store(false);
+}
+
+void WorkerThread::do_shutdown(const StartShutdown& cmd)
+{
+    m_busy.store(true);
+    m_cancel_requested.store(false);
+
+    auto* blueprint = cmd.m_blueprint.get();
+
+    post_to_ui(Progress{"Shutdown", "Running hooks...", -1});
+    post_to_ui(LogEntry{LogEntry::Level::Info, "Running shutdown hooks for: " + blueprint->project_name()});
+
+    WorkerCallback callback(this);
+    insti::Orchestrator orc{ cmd.m_snapshot_registry.get() };
+    bool success = orc.run_shutdown(blueprint, &callback);
+
+    post_to_ui(OperationComplete{
+        success,
+        success ? "Shutdown completed" : "Shutdown failed",
         blueprint->project_name()
     });
     m_busy.store(false);

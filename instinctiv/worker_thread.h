@@ -163,6 +163,30 @@ namespace instinctiv
 		pnq::RefCountedInstance<insti::IHook*> m_hook;
 	};
 
+	class StartStartup final
+	{
+	public:
+		StartStartup(insti::SnapshotRegistry* snapshot_registry, insti::Blueprint* bp)
+			: m_snapshot_registry{ snapshot_registry }
+			, m_blueprint{ bp }
+		{
+		}
+		pnq::RefCountedInstance<insti::Blueprint*> m_blueprint;
+		pnq::RefCountedInstance<insti::SnapshotRegistry*> m_snapshot_registry;
+	};
+
+	class StartShutdown final
+	{
+	public:
+		StartShutdown(insti::SnapshotRegistry* snapshot_registry, insti::Blueprint* bp)
+			: m_snapshot_registry{ snapshot_registry }
+			, m_blueprint{ bp }
+		{
+		}
+		pnq::RefCountedInstance<insti::Blueprint*> m_blueprint;
+		pnq::RefCountedInstance<insti::SnapshotRegistry*> m_snapshot_registry;
+	};
+
 	struct DecisionResponse
 	{
 		insti::IActionCallback::Decision decision;
@@ -184,6 +208,8 @@ namespace instinctiv
 		StartClean,
 		StartVerify,
 		StartHook,
+		StartStartup,
+		StartShutdown,
 		RefreshRegistry,
 		DecisionResponse,
 		CancelOperation,
@@ -316,6 +342,8 @@ namespace instinctiv
 		void do_clean(const StartClean& cmd);
 		void do_verify(const StartVerify& cmd);
 		void do_hook(const StartHook& cmd);
+		void do_startup(const StartStartup& cmd);
+		void do_shutdown(const StartShutdown& cmd);
 		void do_refresh_registry(const RefreshRegistry& cmd);
 
 		/// Post a message to the UI (called from worker thread).

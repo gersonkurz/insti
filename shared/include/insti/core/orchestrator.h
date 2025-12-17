@@ -64,6 +64,20 @@ namespace insti
 		///               When provided, enables file-level comparison against archive
 		/// @return Verification results for each action
 		std::vector<VerifyResult> verify(const Blueprint* bp, IActionCallback* cb, SnapshotReader* reader = nullptr);
+
+		/// Run startup hooks only.
+		/// @param bp Blueprint (must not be nullptr)
+		/// @param cb Callback for progress/errors (may be nullptr)
+		/// @param force If true, also run force-only hooks
+		/// @return true on success
+		bool run_startup(const Blueprint* bp, IActionCallback* cb, bool force = false);
+
+		/// Run shutdown hooks only.
+		/// @param bp Blueprint (must not be nullptr)
+		/// @param cb Callback for progress/errors (may be nullptr)
+		/// @param force If true, also run force-only hooks
+		/// @return true on success
+		bool run_shutdown(const Blueprint* bp, IActionCallback* cb, bool force = false);
 	};
 
 	/// Simple callback that aborts on first error.

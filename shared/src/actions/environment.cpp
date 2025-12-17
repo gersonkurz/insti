@@ -255,4 +255,10 @@ namespace insti
             {"archive", m_archive_path}};
     }
 
+    std::string EnvironmentAction::describe_clean() const
+    {
+        const char* scope_str = m_scope == EnvironmentScope::User ? "User" : "System";
+        return std::string("Environment (") + scope_str + "): " + m_name;
+    }
+
 } // namespace insti

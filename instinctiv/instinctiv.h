@@ -57,11 +57,12 @@ namespace instinctiv
 		void render_menu_bar();
 		void render_toolbar();
 		void render_snapshot_table();
-		void render_first_run_dialog();
 		void render_progress_dialog();
 		void render_font_dialog();
 		void render_backup_dialog();
 		void render_settings_dialog();
+		void render_blueprint_editor();
+		void render_uninstall_confirm_dialog();
 
 		// Title bar helpers
 		bool is_window_maximized() const;
@@ -96,6 +97,10 @@ namespace instinctiv
 
 		// Hook execution
 		void start_hook_execution(insti::IHook* hook);
+
+		// Lifecycle operations
+		void start_startup(insti::Project* blueprint);
+		void start_shutdown(insti::Project* blueprint);
 
 	private:
 		// Config and paths
@@ -145,6 +150,21 @@ namespace instinctiv
 		bool m_showSettingsDialog{ false };
 		std::vector<std::string> m_settingsRoots;  // Editable copy of registry roots
 		int m_settingsSelectedRoot{ -1 };  // Selected root in list
+
+		// Blueprint editor dialog
+		bool m_showBlueprintEditor{ false };
+		enum class BlueprintEditorMode { None, Add, Edit, Remove };
+		BlueprintEditorMode m_blueprintEditorMode{ BlueprintEditorMode::None };
+		int m_blueprintEditorSelectedProject{ -1 };  // Selected project in combobox
+		char m_blueprintEditorName[256]{};  // Project name
+		std::string m_blueprintEditorXml;  // XML content
+		std::string m_blueprintEditorSourcePath;  // Original file path (empty for new)
+		std::string m_blueprintEditorSyntaxResult;  // Syntax check result message
+
+		// Uninstall confirmation dialog
+		bool m_showUninstallConfirm{ false };
+		insti::Project* m_uninstallTarget{ nullptr };  // Project/Instance to uninstall
+		std::vector<std::string> m_uninstallDescriptions;  // What will be removed
 
 		// Custom title bar
 		DWORD m_accentColor{ RGB(0, 120, 212) };  // Windows accent color

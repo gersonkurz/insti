@@ -366,4 +366,9 @@ namespace insti
             {"archive", m_archive_path}};
     }
 
+    std::string ServiceAction::describe_clean() const
+    {
+        return "Service: " + m_name;
+    }
+
 } // namespace insti

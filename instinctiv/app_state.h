@@ -38,7 +38,6 @@ namespace instinctiv
 		bool is_refreshing = false;                 // Registry refresh in progress
 
 		// First-run state
-		bool show_first_run_dialog = false;         // Show setup dialog when registry is empty
 		bool first_refresh_done = false;            // True after first registry refresh completes
 
 		// Detail panel state

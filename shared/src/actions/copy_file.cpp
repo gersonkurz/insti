@@ -199,4 +199,9 @@ namespace insti
             {"archive", m_archive_path}};
     }
 
+    std::string CopyFileAction::describe_clean() const
+    {
+        return "File: " + m_path;
+    }
+
 } // namespace insti

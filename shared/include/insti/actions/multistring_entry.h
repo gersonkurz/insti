@@ -45,6 +45,7 @@ namespace insti
         bool restore(ActionContext *ctx) const override;
         bool do_clean(ActionContext *ctx) const override;
         VerifyResult verify(ActionContext *ctx) const override;
+        std::string describe_clean() const override;
 
         std::vector<std::string> read_multi_string() const;
         bool write_multi_string(const std::vector<std::string> &entries) const;

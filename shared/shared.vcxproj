@@ -84,7 +84,7 @@
     <ClCompile Include="src\actions\hosts.cpp" />
     <ClCompile Include="src\actions\multistring_entry.cpp" />
     <ClCompile Include="src\actions\registry.cpp" />
-    <ClCompile Include="src\actions\service.cpp" />
+    <ClCompile Include="src\actions\service_action.cpp" />
     <ClCompile Include="src\core\action_context.cpp" />
     <ClCompile Include="src\core\blueprint.cpp" />
     <ClCompile Include="src\core\instance.cpp" />
@@ -92,6 +92,7 @@
     <ClCompile Include="src\core\project.cpp" />
     <ClCompile Include="src\hooks\kill_process.cpp" />
     <ClCompile Include="src\hooks\run_process.cpp" />
+    <ClCompile Include="src\hooks\service.cpp" />
     <ClCompile Include="src\hooks\sql.cpp" />
     <ClCompile Include="src\hooks\substitute.cpp" />
     <ClCompile Include="src\pch.cpp">
@@ -135,6 +136,7 @@
     <ClInclude Include="include\insti\hooks\hook.h" />
     <ClInclude Include="include\insti\hooks\kill_process.h" />
     <ClInclude Include="include\insti\hooks\run_process.h" />
+    <ClInclude Include="include\insti\hooks\service.h" />
     <ClInclude Include="include\insti\hooks\sql.h" />
     <ClInclude Include="include\insti\hooks\substitute.h" />
     <ClInclude Include="include\insti\registry\blueprint_cache.h" />

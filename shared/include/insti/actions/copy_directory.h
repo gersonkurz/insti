@@ -51,6 +51,7 @@ namespace insti
         bool restore(ActionContext *ctx) const override;
         bool do_clean(ActionContext *ctx) const override;
         VerifyResult verify(ActionContext *ctx) const override;
+        std::string describe_clean() const override;
 
         /// Check if a filename matches the include/exclude filters.
         /// @param filename Filename to check (not full path)

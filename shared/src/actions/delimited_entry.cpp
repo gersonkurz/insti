@@ -202,4 +202,9 @@ namespace insti
             {"archive", m_archive_path}};
     }
 
+    std::string DelimitedEntryAction::describe_clean() const
+    {
+        return "Registry entry in " + m_key + "\\" + m_value_name + ": " + m_entry;
+    }
+
 } // namespace insti

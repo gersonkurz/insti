@@ -255,4 +255,9 @@ namespace insti
             {"archive", m_archive_path}};
     }
 
+    std::string HostsAction::describe_clean() const
+    {
+        return "Hosts entry: " + m_hostname;
+    }
+
 } // namespace insti

@@ -35,6 +35,7 @@ namespace insti
         bool restore(ActionContext *ctx) const override;
         bool do_clean(ActionContext *ctx) const override;
         VerifyResult verify(ActionContext *ctx) const override;
+        std::string describe_clean() const override;
 
         const std::string m_path;
         const std::string m_archive_path;

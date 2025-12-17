@@ -513,6 +513,37 @@ bool Blueprint::parse_xml(std::string_view xml)
                 if (hook_name.empty() && standalone)
                     hook_name = std::filesystem::path(path).stem().string();
             }
+            else if (node_name == "start-service")
+            {
+                std::string service = node.attribute("name").as_string();
+                if (service.empty())
+                {
+                    spdlog::error("start-service hook missing 'name' attribute");
+                    return false;
+                }
+
+                bool wait = node.attribute("wait").as_bool(true);
+                hook = new StartServiceHook(std::move(service), wait);
+
+                // For service hooks, 'name' attr is the service name, use it for display too
+                if (hook_name.empty() && standalone)
+                    hook_name = service;
+            }
+            else if (node_name == "stop-service")
+            {
+                std::string service = node.attribute("name").as_string();
+                if (service.empty())
+                {
+                    spdlog::error("stop-service hook missing 'name' attribute");
+                    return false;
+                }
+
+                bool wait = node.attribute("wait").as_bool(true);
+                hook = new StopServiceHook(std::move(service), wait);
+
+                if (hook_name.empty() && standalone)
+                    hook_name = service;
+            }
             else
             {
                 spdlog::warn("Unknown hook type: {}", node_name);
@@ -634,11 +665,26 @@ std::string Blueprint::to_xml() const
                     node.append_child("arg").text().set(arg.c_str());
                 }
             }
+            else if (auto* start_svc = dynamic_cast<const StartServiceHook*>(hook))
+            {
+                node = parent.append_child("start-service");
+                node.append_attribute("name") = start_svc->service_name().c_str();
+                if (!start_svc->wait())
+                    node.append_attribute("wait") = false;
+            }
+            else if (auto* stop_svc = dynamic_cast<const StopServiceHook*>(hook))
+            {
+                node = parent.append_child("stop-service");
+                node.append_attribute("name") = stop_svc->service_name().c_str();
+                if (!stop_svc->wait())
+                    node.append_attribute("wait") = false;
+            }
 
-            // Write common optional attributes
+            // Write common optional attributes (skip 'name' for service hooks - already written)
             if (node)
             {
-                if (!hook->name().empty())
+                bool is_service_hook = dynamic_cast<const StartServiceHook*>(hook) || dynamic_cast<const StopServiceHook*>(hook);
+                if (!hook->name().empty() && !is_service_hook)
                     node.append_attribute("name") = hook->name().c_str();
                 if (hook->is_standalone())
                     node.append_attribute("standalone") = true;

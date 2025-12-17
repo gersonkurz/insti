@@ -13,6 +13,8 @@
 #include <imgui.h>
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx11.h>
+#include <misc/cpp/imgui_stdlib.h>
+#include <misc/cpp/imgui_stdlib.cpp>
 
 #include <d3d11.h>
 #include <shellapi.h>
@@ -349,10 +351,11 @@ namespace instinctiv
 
 		// Modal dialogs
 		render_progress_dialog();
-		render_first_run_dialog();
 		render_font_dialog();
 		render_backup_dialog();
 		render_settings_dialog();
+		render_blueprint_editor();
+		render_uninstall_confirm_dialog();
 
 		// Rendering
 		ImGui::Render();
@@ -384,8 +387,8 @@ namespace instinctiv
 		{
 			if (m_state.show_progress_dialog && !m_state.worker->is_busy())
 				m_state.show_progress_dialog = false;
-			else if (m_state.show_first_run_dialog)
-				m_state.show_first_run_dialog = false;
+			else if (m_showSettingsDialog)
+				m_showSettingsDialog = false;
 		}
 	}
 
@@ -423,6 +426,17 @@ namespace instinctiv
 		{
 			if (ImGui::MenuItem("Exit", "Alt+F4"))
 				m_done = true;
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Edit"))
+		{
+			if (ImGui::MenuItem("Blueprint Editor..."))
+			{
+				m_showBlueprintEditor = true;
+				m_blueprintEditorMode = BlueprintEditorMode::None;
+				m_blueprintEditorSelectedProject = -1;
+			}
 			ImGui::EndMenu();
 		}
 
@@ -625,9 +639,45 @@ namespace instinctiv
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !has_project)
 			ImGui::SetTooltip("Select a project first");
 
-		// Standalone hook buttons from current project
+		// Startup/Shutdown buttons
 		if (has_project)
 		{
+			bool has_startup = !m_current_project->startup_hooks().empty();
+			bool has_shutdown = !m_current_project->shutdown_hooks().empty();
+
+			if (has_startup || has_shutdown)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("|");
+
+				if (has_startup)
+				{
+					ImGui::SameLine();
+					ImGui::BeginDisabled(is_busy);
+					if (ImGui::Button("Startup"))
+					{
+						start_startup(m_current_project);
+					}
+					ImGui::EndDisabled();
+					if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+						ImGui::SetTooltip("Run startup hooks");
+				}
+
+				if (has_shutdown)
+				{
+					ImGui::SameLine();
+					ImGui::BeginDisabled(is_busy);
+					if (ImGui::Button("Shutdown"))
+					{
+						start_shutdown(m_current_project);
+					}
+					ImGui::EndDisabled();
+					if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+						ImGui::SetTooltip("Run shutdown hooks");
+				}
+			}
+
+			// Standalone hook buttons from current project
 			auto standalone = m_current_project->standalone_hooks();
 			if (!standalone.empty())
 			{
@@ -788,6 +838,23 @@ namespace instinctiv
 
 						ImGui::Separator();
 
+						// Startup/Shutdown hooks
+						bool has_startup = !entry->startup_hooks().empty();
+						bool has_shutdown = !entry->shutdown_hooks().empty();
+
+						if (has_startup && ImGui::MenuItem("Startup", nullptr, false, !is_busy))
+						{
+							start_startup(entry);
+						}
+
+						if (has_shutdown && ImGui::MenuItem("Shutdown", nullptr, false, !is_busy))
+						{
+							start_shutdown(entry);
+						}
+
+						if (has_startup || has_shutdown)
+							ImGui::Separator();
+
 						if (ImGui::MenuItem("Open Containing Folder"))
 						{
 							// Open explorer to the folder containing this snapshot
@@ -878,83 +945,56 @@ namespace instinctiv
 		m_state.worker->post(StartHook{ m_current_project, hook });
 	}
 
-	void Instinctiv::render_first_run_dialog()
+	void Instinctiv::start_startup(insti::Project* blueprint)
 	{
-		if (!m_state.show_first_run_dialog)
+		if (!blueprint)
 			return;
 
-		ImGui::SetNextWindowSize(ImVec2(450, 250), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		spdlog::info("start_startup: {}", blueprint->project_name());
 
-		ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize;
+		// Setup progress dialog
+		m_state.progress_operation = "Startup";
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Running startup hooks for: " + blueprint->project_name());
+		m_state.show_progress_dialog = true;
 
-		if (ImGui::Begin("Welcome to insti", nullptr, flags))
-		{
-			ImGui::TextWrapped("No blueprints or snapshots were found in the configured registry folders.");
-			ImGui::Spacing();
-			ImGui::TextWrapped("To get started, add a folder containing blueprint files (.xml) or snapshots (.zip).");
-			ImGui::Spacing();
-			ImGui::Separator();
-			ImGui::Spacing();
+		// Store reference to project for the operation
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = blueprint;
+		PNQ_ADDREF(m_state.active_blueprint);
 
-			// Show current registry roots
-			ImGui::Text("Current registry folders:");
-			if (m_state.registry_roots.empty())
-			{
-				ImGui::TextDisabled("  (none configured)");
-			}
-			else
-			{
-				for (const auto& root : m_state.registry_roots)
-				{
-					ImGui::BulletText("%s", root.c_str());
-				}
-			}
+		// Start startup on worker thread
+		m_state.worker->post(StartStartup{ m_state.m_snapshot_registry, blueprint });
+	}
 
-			ImGui::Spacing();
-			ImGui::Separator();
-			ImGui::Spacing();
+	void Instinctiv::start_shutdown(insti::Project* blueprint)
+	{
+		if (!blueprint)
+			return;
 
-			// Add folder button
-			if (ImGui::Button("Add Folder...", ImVec2(120, 0)))
-			{
-				std::string folder = browse_for_folder(m_hWnd, "Select Registry Folder");
-				if (!folder.empty())
-				{
-					// Add to registry roots
-					m_state.registry_roots.push_back({ folder, true });
+		spdlog::info("start_shutdown: {}", blueprint->project_name());
 
-					// Update settings
-					auto& registrySettings = config::theSettings.registry;
-					std::string roots_str = registrySettings.roots.get();
-					if (!roots_str.empty())
-						roots_str += ",";
-					roots_str += folder;
-					registrySettings.roots.set(roots_str);
+		// Setup progress dialog
+		m_state.progress_operation = "Shutdown";
+		m_state.progress_phase = "Starting";
+		m_state.progress_detail = "";
+		m_state.progress_percent = -1;
+		m_state.progress_log.clear();
+		m_state.progress_log.push_back("Running shutdown hooks for: " + blueprint->project_name());
+		m_state.show_progress_dialog = true;
 
-					// Trigger refresh
-					m_state.is_refreshing = true;
-					m_state.status_message = "Scanning for snapshots...";
+		// Store reference to project for the operation
+		if (m_state.active_blueprint)
+			PNQ_RELEASE(m_state.active_blueprint);
+		m_state.active_blueprint = blueprint;
+		PNQ_ADDREF(m_state.active_blueprint);
 
-					// on first thought, this is no good, because it'll overwrite an existing SnapshotRegistry.
-					// on second thought, it IS good, because it solves precisely the problem that we shouldn't modify
-					// the vectors of an existing object while it is being processed in a background thread
-					m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
-
-					// Close dialog (will reopen if still empty after refresh)
-					m_state.show_first_run_dialog = false;
-					m_state.first_refresh_done = false;  // Allow re-check after refresh
-				}
-			}
-
-			ImGui::SameLine();
-
-			if (ImGui::Button("Continue Anyway", ImVec2(120, 0)))
-			{
-				m_state.show_first_run_dialog = false;
-			}
-		}
-		ImGui::End();
+		// Start shutdown on worker thread
+		m_state.worker->post(StartShutdown{ m_state.m_snapshot_registry, blueprint });
 	}
 
 	bool Instinctiv::initialize(HINSTANCE hInstance)
@@ -1514,13 +1554,18 @@ namespace instinctiv
 						instances.size(), instances.size() == 1 ? "" : "s",
 						projects.size(), projects.size() == 1 ? "" : "s");
 
-					// Check for empty registry on first refresh
+					// Check for empty registry on first refresh - show settings dialog
 					if (!m_state.first_refresh_done)
 					{
 						m_state.first_refresh_done = true;
 						if (instances.empty() && projects.empty())
 						{
-							m_state.show_first_run_dialog = true;
+							// Show settings dialog with warning
+							m_settingsRoots.clear();
+							for (const auto& root : m_state.registry_roots)
+								m_settingsRoots.push_back(root);
+							m_settingsSelectedRoot = -1;
+							m_showSettingsDialog = true;
 						}
 					}
 				}
@@ -1709,21 +1754,16 @@ namespace instinctiv
 
 		spdlog::info("start_clean_from_project: {}", project->project_name());
 
-		// Setup progress dialog
-		m_state.progress_operation = m_state.dry_run ? "Dry-run Uninstall" : "Uninstall";
-		m_state.progress_phase = "Starting";
-		m_state.progress_detail = "";
-		m_state.progress_percent = -1;
-		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Uninstalling: " + project->project_name());
-		m_state.show_progress_dialog = true;
+		// Collect descriptions of what will be removed
+		m_uninstallDescriptions.clear();
+		for (const auto* action : project->actions())
+		{
+			m_uninstallDescriptions.push_back(action->describe_clean());
+		}
 
-		if (m_state.active_blueprint)
-			PNQ_RELEASE(m_state.active_blueprint);
-		m_state.active_blueprint = project;
-		PNQ_ADDREF(m_state.active_blueprint);
-
-		m_state.worker->post(StartClean{ m_state.m_snapshot_registry, project, m_state.dry_run });
+		// Show confirmation dialog
+		m_uninstallTarget = project;
+		m_showUninstallConfirm = true;
 	}
 
 	void Instinctiv::start_verify_from_project(insti::Project* project)
@@ -1808,22 +1848,16 @@ namespace instinctiv
 
 		spdlog::info("start_clean_from_instance: {}", instance->m_snapshot_path);
 
-		// Setup progress dialog
-		m_state.progress_operation = m_state.dry_run ? "Dry-run Uninstall" : "Uninstall";
-		m_state.progress_phase = "Starting";
-		m_state.progress_detail = "";
-		m_state.progress_percent = -1;
-		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Uninstalling: " + instance->project_name());
-		m_state.progress_log.push_back("(Based on instance: " + instance->m_snapshot_path + ")");
-		m_state.show_progress_dialog = true;
+		// Collect descriptions of what will be removed
+		m_uninstallDescriptions.clear();
+		for (const auto* action : instance->actions())
+		{
+			m_uninstallDescriptions.push_back(action->describe_clean());
+		}
 
-		if (m_state.active_blueprint)
-			PNQ_RELEASE(m_state.active_blueprint);
-		m_state.active_blueprint = instance;
-		PNQ_ADDREF(m_state.active_blueprint);
-
-		m_state.worker->post(StartClean{ m_state.m_snapshot_registry, instance, m_state.dry_run });
+		// Show confirmation dialog
+		m_uninstallTarget = instance;
+		m_showUninstallConfirm = true;
 	}
 
 	void Instinctiv::start_verify_from_instance(insti::Instance* instance)
@@ -2197,6 +2231,20 @@ namespace instinctiv
 
 		if (ImGui::Begin("Settings", &open, ImGuiWindowFlags_NoCollapse))
 		{
+			// Show warning if no blueprints/instances found
+			bool registry_empty = !m_state.m_snapshot_registry ||
+				(m_state.m_snapshot_registry->m_instances.empty() &&
+				 m_state.m_snapshot_registry->m_projects.empty());
+			if (registry_empty)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+				ImGui::TextWrapped("No project blueprints or instance snapshots found. Add a folder containing blueprint files (.xml) or snapshots (.zip).");
+				ImGui::PopStyleColor();
+				ImGui::Spacing();
+				ImGui::Separator();
+				ImGui::Spacing();
+			}
+
 			ImGui::Text("Registry Roots");
 			ImGui::TextDisabled("Folders where blueprints and snapshots are stored");
 			ImGui::Spacing();
@@ -2298,6 +2346,406 @@ namespace instinctiv
 			m_showSettingsDialog = false;
 			m_settingsRoots.clear();
 			m_settingsSelectedRoot = -1;
+		}
+	}
+
+	// Blueprint editor dialog
+	void Instinctiv::render_blueprint_editor()
+	{
+		if (!m_showBlueprintEditor)
+			return;
+
+		ImGui::SetNextWindowSize(ImVec2(700, 550), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+		bool open = true;
+		bool do_save = false;
+		bool do_delete = false;
+
+		if (ImGui::Begin("Blueprint Editor", &open, ImGuiWindowFlags_NoCollapse))
+		{
+			static pnq::RefCountedVector<insti::Project*> empty_projects;
+			auto& projects = m_state.m_snapshot_registry ? m_state.m_snapshot_registry->m_projects : empty_projects;
+			bool is_editing = (m_blueprintEditorMode == BlueprintEditorMode::Add || m_blueprintEditorMode == BlueprintEditorMode::Edit);
+
+			// Project selector row
+			ImGui::Text("Project:");
+			ImGui::SameLine(80);
+			ImGui::SetNextItemWidth(300);
+			ImGui::BeginDisabled(is_editing);
+			if (ImGui::BeginCombo("##ProjectCombo",
+				m_blueprintEditorSelectedProject >= 0 && m_blueprintEditorSelectedProject < static_cast<int>(projects.size())
+					? projects[m_blueprintEditorSelectedProject]->project_name().c_str()
+					: "(Select a project)"))
+			{
+				for (int i = 0; i < static_cast<int>(projects.size()); ++i)
+				{
+					bool selected = (m_blueprintEditorSelectedProject == i);
+					if (ImGui::Selectable(projects[i]->project_name().c_str(), selected))
+					{
+						m_blueprintEditorSelectedProject = i;
+					}
+					if (selected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::EndDisabled();
+
+			ImGui::SameLine();
+			ImGui::BeginDisabled(is_editing);
+			if (ImGui::Button("Add"))
+			{
+				// Create new blueprint based on selected (or blank template)
+				m_blueprintEditorMode = BlueprintEditorMode::Add;
+				m_blueprintEditorSourcePath.clear();
+				m_blueprintEditorSyntaxResult.clear();
+
+				// Generate unique name
+				std::string base_name = "NewProject";
+				int counter = 1;
+				bool unique = false;
+				while (!unique)
+				{
+					std::string candidate = base_name + std::to_string(counter);
+					unique = true;
+					for (const auto& p : projects)
+					{
+						if (p->project_name() == candidate)
+						{
+							unique = false;
+							counter++;
+							break;
+						}
+					}
+					if (unique)
+						strncpy_s(m_blueprintEditorName, candidate.c_str(), sizeof(m_blueprintEditorName) - 1);
+				}
+
+				// Copy XML from selected project or use template
+				if (m_blueprintEditorSelectedProject >= 0 && m_blueprintEditorSelectedProject < static_cast<int>(projects.size()))
+				{
+					std::ifstream file(projects[m_blueprintEditorSelectedProject]->source_path());
+					if (file)
+					{
+						std::ostringstream ss;
+						ss << file.rdbuf();
+						m_blueprintEditorXml = ss.str();
+					}
+				}
+				else
+				{
+					m_blueprintEditorXml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<project name="NewProject" version="1.0">
+    <description>Project description</description>
+    <resources>
+        <!-- Add resources here -->
+    </resources>
+</project>
+)";
+				}
+			}
+			ImGui::EndDisabled();
+
+			ImGui::SameLine();
+			bool can_edit = m_blueprintEditorSelectedProject >= 0 && m_blueprintEditorSelectedProject < static_cast<int>(projects.size());
+			ImGui::BeginDisabled(is_editing || !can_edit);
+			if (ImGui::Button("Edit"))
+			{
+				m_blueprintEditorMode = BlueprintEditorMode::Edit;
+				auto* project = projects[m_blueprintEditorSelectedProject];
+				m_blueprintEditorSourcePath = project->source_path();
+				strncpy_s(m_blueprintEditorName, project->project_name().c_str(), sizeof(m_blueprintEditorName) - 1);
+				m_blueprintEditorSyntaxResult.clear();
+
+				// Load XML content
+				std::ifstream file(project->source_path());
+				if (file)
+				{
+					std::ostringstream ss;
+					ss << file.rdbuf();
+					m_blueprintEditorXml = ss.str();
+				}
+				else
+				{
+					m_blueprintEditorXml = "<!-- Failed to load file -->";
+				}
+			}
+			ImGui::EndDisabled();
+
+			ImGui::SameLine();
+			ImGui::BeginDisabled(is_editing || !can_edit);
+			if (ImGui::Button("Remove"))
+			{
+				m_blueprintEditorMode = BlueprintEditorMode::Remove;
+				auto* project = projects[m_blueprintEditorSelectedProject];
+				m_blueprintEditorSourcePath = project->source_path();
+				strncpy_s(m_blueprintEditorName, project->project_name().c_str(), sizeof(m_blueprintEditorName) - 1);
+			}
+			ImGui::EndDisabled();
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::Spacing();
+
+			// Remove confirmation
+			if (m_blueprintEditorMode == BlueprintEditorMode::Remove)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+				ImGui::TextWrapped("Are you sure you want to delete '%s'?", m_blueprintEditorName);
+				ImGui::TextWrapped("File: %s", m_blueprintEditorSourcePath.c_str());
+				ImGui::PopStyleColor();
+
+				ImGui::Spacing();
+				if (ImGui::Button("Yes, Delete", ImVec2(100, 0)))
+				{
+					do_delete = true;
+					open = false;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel", ImVec2(80, 0)))
+				{
+					m_blueprintEditorMode = BlueprintEditorMode::None;
+				}
+			}
+			// Edit/Add mode
+			else if (is_editing)
+			{
+				// Name field
+				ImGui::Text("Name:");
+				ImGui::SameLine(80);
+				ImGui::SetNextItemWidth(-1);
+				ImGui::InputText("##Name", m_blueprintEditorName, sizeof(m_blueprintEditorName));
+
+				ImGui::Spacing();
+
+				// XML content (multiline)
+				ImGui::Text("XML:");
+				float available_height = ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing() * 3 - 8;
+				ImGui::InputTextMultiline("##XmlContent", &m_blueprintEditorXml,
+					ImVec2(-1, available_height), ImGuiInputTextFlags_AllowTabInput);
+
+				// Syntax check button and result
+				if (ImGui::Button("Syntax Check", ImVec2(100, 0)))
+				{
+					// Try to parse the XML
+					auto* blueprint = insti::Project::load_from_string(m_blueprintEditorXml, "");
+					if (blueprint)
+					{
+						m_blueprintEditorSyntaxResult = "OK: Valid blueprint for '" + blueprint->project_name() + "' v" + blueprint->project_version();
+						PNQ_RELEASE(blueprint);
+					}
+					else
+					{
+						m_blueprintEditorSyntaxResult = "Error: Failed to parse XML";
+					}
+				}
+
+				if (!m_blueprintEditorSyntaxResult.empty())
+				{
+					ImGui::SameLine();
+					bool is_ok = m_blueprintEditorSyntaxResult.starts_with("OK:");
+					if (is_ok)
+						ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", m_blueprintEditorSyntaxResult.c_str());
+					else
+						ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", m_blueprintEditorSyntaxResult.c_str());
+				}
+
+				ImGui::Spacing();
+				ImGui::Separator();
+				ImGui::Spacing();
+
+				// OK / Cancel
+				if (ImGui::Button("OK", ImVec2(80, 0)))
+				{
+					do_save = true;
+					open = false;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel", ImVec2(80, 0)))
+				{
+					m_blueprintEditorMode = BlueprintEditorMode::None;
+					m_blueprintEditorXml.clear();
+					m_blueprintEditorSyntaxResult.clear();
+				}
+			}
+			else
+			{
+				// No mode - show instructions
+				ImGui::TextDisabled("Select a project and click Add, Edit, or Remove.");
+			}
+		}
+		ImGui::End();
+
+		if (!open)
+		{
+			if (do_save)
+			{
+				// Determine output path
+				std::string output_path;
+				if (m_blueprintEditorMode == BlueprintEditorMode::Edit)
+				{
+					output_path = m_blueprintEditorSourcePath;
+				}
+				else if (m_blueprintEditorMode == BlueprintEditorMode::Add)
+				{
+					// Save to first registry root's "projects" subfolder if it exists
+					if (!m_state.registry_roots.empty())
+					{
+						std::filesystem::path root{ m_state.registry_roots[0] };
+						std::filesystem::path projects_dir = root / "projects";
+						if (std::filesystem::is_directory(projects_dir))
+							root = projects_dir;
+
+						std::string safe_name = m_blueprintEditorName;
+						std::replace(safe_name.begin(), safe_name.end(), ' ', '_');
+						output_path = (root / (safe_name + ".xml")).string();
+					}
+				}
+
+				if (!output_path.empty())
+				{
+					std::ofstream file(output_path);
+					if (file)
+					{
+						file << m_blueprintEditorXml;
+						file.close();
+						m_state.status_message = "Saved: " + output_path;
+
+						// Trigger refresh
+						m_state.is_refreshing = true;
+						m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
+					}
+					else
+					{
+						m_state.status_message = "Failed to save: " + output_path;
+					}
+				}
+			}
+			else if (do_delete)
+			{
+				if (!m_blueprintEditorSourcePath.empty())
+				{
+					std::error_code ec;
+					if (std::filesystem::remove(m_blueprintEditorSourcePath, ec))
+					{
+						m_state.status_message = "Deleted: " + m_blueprintEditorSourcePath;
+
+						// Trigger refresh
+						m_state.is_refreshing = true;
+						m_state.worker->post(RefreshRegistry{ m_state.registry_roots });
+					}
+					else
+					{
+						m_state.status_message = "Failed to delete: " + m_blueprintEditorSourcePath;
+					}
+				}
+			}
+
+			// Reset state
+			m_showBlueprintEditor = false;
+			m_blueprintEditorMode = BlueprintEditorMode::None;
+			m_blueprintEditorSelectedProject = -1;
+			m_blueprintEditorName[0] = '\0';
+			m_blueprintEditorXml.clear();
+			m_blueprintEditorSourcePath.clear();
+			m_blueprintEditorSyntaxResult.clear();
+		}
+	}
+
+	// Uninstall confirmation dialog
+	void Instinctiv::render_uninstall_confirm_dialog()
+	{
+		if (!m_showUninstallConfirm || !m_uninstallTarget)
+			return;
+
+		ImGui::SetNextWindowSize(ImVec2(550, 400), ImGuiCond_Appearing);
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+		bool open = true;
+		bool do_uninstall = false;
+
+		if (ImGui::Begin("Confirm Uninstall", &open, ImGuiWindowFlags_NoCollapse))
+		{
+			// Warning header
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.4f, 1.0f));
+			ImGui::Text("Are you sure you want to uninstall '%s'?", m_uninstallTarget->project_name().c_str());
+			ImGui::PopStyleColor();
+
+			ImGui::Spacing();
+			ImGui::Text("The following items will be removed:");
+			ImGui::Spacing();
+
+			// Calculate available height for the list (leave room for dry-run text, separator, and buttons)
+			float reservedHeight = ImGui::GetFrameHeightWithSpacing() * 2 + 8;  // buttons + small padding
+			if (m_state.dry_run)
+				reservedHeight += ImGui::GetTextLineHeightWithSpacing();  // dry-run text
+
+			float listHeight = ImGui::GetContentRegionAvail().y - reservedHeight;
+			if (listHeight < 100.0f)
+				listHeight = 100.0f;
+
+			ImGui::BeginChild("UninstallItems", ImVec2(-1, listHeight), true);  // true = border
+			for (const auto& desc : m_uninstallDescriptions)
+			{
+				ImGui::BulletText("%s", desc.c_str());
+			}
+			ImGui::EndChild();
+
+			// Dry run hint
+			if (m_state.dry_run)
+			{
+				ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "(Dry-run mode is enabled)");
+			}
+
+			ImGui::Separator();
+
+			// Buttons
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.3f, 0.3f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.4f, 0.4f, 1.0f));
+			if (ImGui::Button("Yes, Uninstall", ImVec2(120, 0)))
+			{
+				do_uninstall = true;
+				open = false;
+			}
+			ImGui::PopStyleColor(2);
+
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(80, 0)))
+			{
+				open = false;
+			}
+		}
+		ImGui::End();
+
+		if (!open)
+		{
+			if (do_uninstall && m_uninstallTarget)
+			{
+				// Proceed with actual uninstall
+				spdlog::info("User confirmed uninstall: {}", m_uninstallTarget->project_name());
+
+				// Setup progress dialog
+				m_state.progress_operation = m_state.dry_run ? "Dry-run Uninstall" : "Uninstall";
+				m_state.progress_phase = "Starting";
+				m_state.progress_detail = "";
+				m_state.progress_percent = -1;
+				m_state.progress_log.clear();
+				m_state.progress_log.push_back("Uninstalling: " + m_uninstallTarget->project_name());
+				m_state.show_progress_dialog = true;
+
+				if (m_state.active_blueprint)
+					PNQ_RELEASE(m_state.active_blueprint);
+				m_state.active_blueprint = m_uninstallTarget;
+				PNQ_ADDREF(m_state.active_blueprint);
+
+				m_state.worker->post(StartClean{ m_state.m_snapshot_registry, m_uninstallTarget, m_state.dry_run });
+			}
+
+			// Reset state
+			m_showUninstallConfirm = false;
+			m_uninstallTarget = nullptr;
+			m_uninstallDescriptions.clear();
 		}
 	}
 

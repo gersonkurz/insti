@@ -73,6 +73,11 @@ namespace insti
         /// @return Verification result with status and detail
         virtual VerifyResult verify(ActionContext *ctx) const = 0;
 
+        /// Describe what this action would remove/affect during clean.
+        /// Used for confirmation dialogs before uninstall.
+        /// @return Human-readable description (e.g., "Folder: C:\Program Files\MyApp")
+        virtual std::string describe_clean() const = 0;
+
         /// Format-agnostic serialization for roundtrip
         /// @return Key-value pairs that can be serialized to any format
         virtual std::vector<std::pair<std::string, std::string>> to_params() const = 0;

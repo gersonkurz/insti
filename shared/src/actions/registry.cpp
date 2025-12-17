@@ -294,4 +294,9 @@ void set_permissive_registry_sddl(const std::string& key_path)
             {"archive", m_archive_path}};
     }
 
+    std::string RegistryAction::describe_clean() const
+    {
+        return "Registry: " + m_key;
+    }
+
 } // namespace insti

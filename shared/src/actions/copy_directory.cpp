@@ -1109,4 +1109,9 @@ namespace insti
         return params;
     }
 
+    std::string CopyDirectoryAction::describe_clean() const
+    {
+        return "Folder: " + m_path;
+    }
+
 } // namespace insti

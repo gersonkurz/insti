@@ -54,6 +54,7 @@
 //     hook.h             - IHook abstract base class
 //     kill_process.h     - Terminate processes
 //     run_process.h      - Execute processes
+//     service.h          - Start/stop Windows services
 //     substitute.h       - Variable substitution in files
 //     sql.h              - SQLite query execution
 //   snapshot/
@@ -103,6 +104,7 @@ namespace insti
 #include <insti/hooks/hook.h>
 #include <insti/hooks/kill_process.h>
 #include <insti/hooks/run_process.h>
+#include <insti/hooks/service.h>
 #include <insti/hooks/substitute.h>
 #include <insti/hooks/sql.h>
 
