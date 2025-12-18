@@ -29,7 +29,7 @@ InstallDirRegKey HKLM "SOFTWARE\Gerson Kurz\insti" "Install_Dir"
 !define MUI_WELCOMEPAGE_TITLE "insti ${CURRENT_VERSION}"
 !define MUI_ABORTWARNING
 
-!define MUI_FINISHPAGE_RUN "$INSTDIR\insti.exe"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\instinctiv.exe"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "license.txt"
