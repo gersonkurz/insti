@@ -13,6 +13,7 @@ SetCompressor /SOLID LZMA
 
 
 !include "MUI2.nsh"
+!include "WinMessages.nsh"
 
 XPStyle on 
 
@@ -79,6 +80,12 @@ Section "Create Start Menu Shortcuts"
     CreateDirectory "$SMPROGRAMS\insti"
     CreateShortCut "$SMPROGRAMS\insti\Uninstall.lnk" "$INSTDIR\Uninstall.exe" "" "$INSTDIR\Uninstall.exe" 0
     CreateShortCut "$SMPROGRAMS\insti\instinctiv.lnk" "$INSTDIR\instinctiv.exe" "" "$INSTDIR\instinctiv.exe" 0
+SectionEnd
+
+Section "Add to system PATH"
+    ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
+    WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" "$0;$INSTDIR"
+    SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 SectionEnd
 
 Section "Uninstall"
