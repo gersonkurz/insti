@@ -132,10 +132,13 @@ namespace instinctiv
 
 	void Instinctiv::create_render_target()
 	{
-		ID3D11Texture2D* pBackBuffer;
+		ID3D11Texture2D* pBackBuffer = nullptr;
 		m_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
-		m_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_mainRenderTargetView);
-		pBackBuffer->Release();
+		if (pBackBuffer)
+		{
+			m_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_mainRenderTargetView);
+			pBackBuffer->Release();
+		}
 	}
 
 	void Instinctiv::cleanup_render_target()

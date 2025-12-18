@@ -239,10 +239,13 @@ namespace insti
         }
 
         // Both exist - compare IP addresses
-        if (system_entry->ip != snapshot_entry->ip)
+        if (snapshot_entry)
         {
-            return {VerifyResult::Status::Mismatch,
-                    "IP mismatch: system='" + system_entry->ip + "' snapshot='" + snapshot_entry->ip + "'"};
+            if (system_entry->ip != snapshot_entry->ip)
+            {
+                return { VerifyResult::Status::Mismatch,
+                        "IP mismatch: system='" + system_entry->ip + "' snapshot='" + snapshot_entry->ip + "'" };
+            }
         }
 
         return {VerifyResult::Status::Match, "Hosts entry matches"};

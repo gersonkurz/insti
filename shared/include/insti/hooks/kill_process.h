@@ -24,9 +24,9 @@ public:
 
     /// @param process_name Process name to kill (e.g., "notepad.exe")
     /// @param timeout_ms Timeout in milliseconds for graceful shutdown before force kill
-    explicit KillProcessHook(std::string process_name, uint32_t timeout_ms = 5000)
+    explicit KillProcessHook(const std::string& process_name, uint32_t timeout_ms = 5000)
         : IHook{std::string{TYPE_NAME}}
-        , m_process_name{std::move(process_name)}
+        , m_process_name{process_name}
         , m_timeout_ms{timeout_ms}
     {}
 

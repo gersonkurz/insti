@@ -86,7 +86,7 @@ std::optional<UIMessage> WorkerThread::poll()
 
 void WorkerThread::post_to_ui(UIMessage msg)
 {
-    while (!m_to_ui.try_push(std::move(msg)))
+    while (!m_to_ui.try_push(msg))
     {
         std::this_thread::yield();
     }

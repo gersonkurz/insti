@@ -27,11 +27,11 @@ public:
     /// @param args Command line arguments (may contain variables)
     /// @param wait Wait for process to complete
     /// @param ignore_exit_code Don't fail on non-zero exit code
-    RunProcessHook(std::string path, std::vector<std::string> args = {},
+    RunProcessHook(const std::string& path, const std::vector<std::string>& args = {},
                    bool wait = true, bool ignore_exit_code = false)
         : IHook{std::string{TYPE_NAME}}
-        , m_path{std::move(path)}
-        , m_args{std::move(args)}
+        , m_path{path}
+        , m_args{args}
         , m_wait{wait}
         , m_ignore_exit_code{ignore_exit_code}
     {}

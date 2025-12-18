@@ -482,7 +482,7 @@ bool Blueprint::parse_xml(std::string_view xml)
                 }
 
                 uint32_t timeout = node.attribute("timeout").as_uint(5000);
-                hook = new KillProcessHook(std::move(process), timeout);
+                hook = new KillProcessHook{ process, timeout };
 
                 // Default name from process name if not specified
                 if (hook_name.empty() && standalone)
@@ -507,7 +507,7 @@ bool Blueprint::parse_xml(std::string_view xml)
                     args.push_back(arg.text().as_string());
                 }
 
-                hook = new RunProcessHook(std::move(path), std::move(args), wait, ignore_exit);
+                hook = new RunProcessHook{ path, args, wait, ignore_exit };
 
                 // Default name from executable name if not specified
                 if (hook_name.empty() && standalone)
@@ -523,7 +523,7 @@ bool Blueprint::parse_xml(std::string_view xml)
                 }
 
                 bool wait = node.attribute("wait").as_bool(true);
-                hook = new StartServiceHook(std::move(service), wait);
+                hook = new StartServiceHook{ service, wait };
 
                 // For service hooks, 'name' attr is the service name, use it for display too
                 if (hook_name.empty() && standalone)
@@ -539,7 +539,7 @@ bool Blueprint::parse_xml(std::string_view xml)
                 }
 
                 bool wait = node.attribute("wait").as_bool(true);
-                hook = new StopServiceHook(std::move(service), wait);
+                hook = new StopServiceHook{ service, wait };
 
                 if (hook_name.empty() && standalone)
                     hook_name = service;
@@ -681,7 +681,7 @@ std::string Blueprint::to_xml() const
             }
 
             // Write common optional attributes (skip 'name' for service hooks - already written)
-            if (node)
+            if (node && hook)
             {
                 bool is_service_hook = dynamic_cast<const StartServiceHook*>(hook) || dynamic_cast<const StopServiceHook*>(hook);
                 if (!hook->name().empty() && !is_service_hook)

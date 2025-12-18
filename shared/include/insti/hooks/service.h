@@ -23,9 +23,9 @@ public:
 
     /// @param service_name Service name to start
     /// @param wait If true, wait for service to reach running state
-    explicit StartServiceHook(std::string service_name, bool wait = true)
+    explicit StartServiceHook(const std::string& service_name, bool wait = true)
         : IHook{std::string{TYPE_NAME}}
-        , m_service_name{std::move(service_name)}
+        , m_service_name{service_name}
         , m_wait{wait}
     {}
 
@@ -54,9 +54,9 @@ public:
 
     /// @param service_name Service name to stop
     /// @param wait If true, wait for service to reach stopped state
-    explicit StopServiceHook(std::string service_name, bool wait = true)
+    explicit StopServiceHook(const std::string& service_name, bool wait = true)
         : IHook{std::string{TYPE_NAME}}
-        , m_service_name{std::move(service_name)}
+        , m_service_name{service_name}
         , m_wait{wait}
     {}
 
