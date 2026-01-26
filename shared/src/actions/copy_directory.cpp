@@ -1023,8 +1023,20 @@ namespace insti
             prefix.pop_back();
 
         // Compare: iterate through archive files
+        auto* cb = ctx->callback();
+        const size_t total_files = archive_entries.files.size();
+        size_t file_index = 0;
+
         for (const auto& rel_file : archive_entries.files)
         {
+            // Report progress for each file
+            if (cb && total_files > 0)
+            {
+                int percent = static_cast<int>((file_index * 100) / total_files);
+                cb->on_progress("Comparing", rel_file, percent);
+            }
+            ++file_index;
+
             auto fs_it = fs_file_set.find(rel_file);
             if (fs_it == fs_file_set.end())
             {

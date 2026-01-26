@@ -57,7 +57,7 @@ namespace instinctiv
 		void render_menu_bar();
 		void render_toolbar();
 		void render_snapshot_table();
-		void render_progress_dialog();
+		void render_progress_view();
 		void render_font_dialog();
 		void render_backup_dialog();
 		void render_settings_dialog();

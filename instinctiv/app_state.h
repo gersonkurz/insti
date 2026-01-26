@@ -49,7 +49,7 @@ namespace instinctiv
 		std::string progress_phase;                 // Current phase
 		std::string progress_detail;                // Current item being processed
 		int progress_percent = -1;                  // Progress percentage (-1 = indeterminate)
-		std::vector<std::string> progress_log;      // Log messages
+		std::vector<LogEntry> progress_log;         // Log messages with levels for coloring
 		insti::Project* active_blueprint = nullptr;  // Blueprint being used for operation (owned)
 
 		// Operation options

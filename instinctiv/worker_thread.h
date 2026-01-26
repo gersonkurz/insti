@@ -229,7 +229,7 @@ namespace instinctiv
 
 	struct LogEntry
 	{
-		enum class Level { Info, Warning, Error };
+		enum class Level { Info, Warning, Error, Success };
 		Level level;
 		std::string message;
 	};

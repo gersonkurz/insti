@@ -16,6 +16,9 @@ WorkerCallback::WorkerCallback(WorkerThread* worker)
 void WorkerCallback::on_progress(std::string_view phase, std::string_view detail, int percent)
 {
     m_worker->post_to_ui(Progress{std::string{phase}, std::string{detail}, percent});
+    // Also log details to make progress visible
+    if (!detail.empty())
+        m_worker->post_to_ui(LogEntry{LogEntry::Level::Info, std::string{detail}});
 }
 
 void WorkerCallback::on_warning(std::string_view message)

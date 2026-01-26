@@ -373,14 +373,21 @@ namespace instinctiv
 			}
 		}
 
-		render_toolbar();
-		ImGui::Separator();
-		render_snapshot_table();
+		// When progress is active, show progress view instead of main content
+		if (m_state.show_progress_dialog)
+		{
+			render_progress_view();
+		}
+		else
+		{
+			render_toolbar();
+			ImGui::Separator();
+			render_snapshot_table();
+		}
 
 		ImGui::End();
 
-		// Modal dialogs
-		render_progress_dialog();
+		// Modal dialogs (progress is now inline, not a dialog)
 		render_font_dialog();
 		render_backup_dialog();
 		render_settings_dialog();
@@ -416,7 +423,14 @@ namespace instinctiv
 		if (ImGui::IsKeyPressed(ImGuiKey_Escape))
 		{
 			if (m_state.show_progress_dialog && !m_state.worker->is_busy())
+			{
 				m_state.show_progress_dialog = false;
+				if (m_state.active_blueprint)
+				{
+					m_state.active_blueprint->release(REFCOUNT_DEBUG_ARGS);
+					m_state.active_blueprint = nullptr;
+				}
+			}
 			else if (m_showSettingsDialog)
 				m_showSettingsDialog = false;
 		}
@@ -933,8 +947,8 @@ namespace instinctiv
 		m_state.progress_detail = "";
 		m_state.progress_percent = -1;
 		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Starting restore: " + instance->project_name());
-		m_state.progress_log.push_back("From: " + instance->m_snapshot_path);
+		m_state.progress_log.push_back({LogEntry::Level::Info, "Starting restore: " + instance->project_name()});
+		m_state.progress_log.push_back({LogEntry::Level::Info, "From: " + instance->m_snapshot_path});
 		m_state.show_progress_dialog = true;
 
 		// Store reference to instance for the operation
@@ -962,7 +976,7 @@ namespace instinctiv
 		m_state.progress_detail = "";
 		m_state.progress_percent = -1;
 		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Running hook: " + hook_name);
+		m_state.progress_log.push_back({LogEntry::Level::Info, "Running hook: " + hook_name});
 		m_state.show_progress_dialog = true;
 
 		// Store reference to project for the operation (add ref since we're keeping it)
@@ -988,7 +1002,7 @@ namespace instinctiv
 		m_state.progress_detail = "";
 		m_state.progress_percent = -1;
 		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Running startup hooks for: " + blueprint->project_name());
+		m_state.progress_log.push_back({LogEntry::Level::Info, "Running startup hooks for: " + blueprint->project_name()});
 		m_state.show_progress_dialog = true;
 
 		// Store reference to project for the operation
@@ -1014,7 +1028,7 @@ namespace instinctiv
 		m_state.progress_detail = "";
 		m_state.progress_percent = -1;
 		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Running shutdown hooks for: " + blueprint->project_name());
+		m_state.progress_log.push_back({LogEntry::Level::Info, "Running shutdown hooks for: " + blueprint->project_name()});
 		m_state.show_progress_dialog = true;
 
 		// Store reference to project for the operation
@@ -1607,20 +1621,13 @@ namespace instinctiv
 				}
 				else if constexpr (std::is_same_v<T, LogEntry>)
 				{
-					std::string prefix;
-					switch (m.level)
-					{
-					case LogEntry::Level::Warning: prefix = "[WARN] "; break;
-					case LogEntry::Level::Error: prefix = "[ERROR] "; break;
-					default: break;
-					}
-					m_state.progress_log.push_back(prefix + m.message);
+					m_state.progress_log.push_back(m);
 				}
 				else if constexpr (std::is_same_v<T, OperationComplete>)
 				{
 					m_state.progress_phase = m.success ? "Complete" : "Failed";
 					m_state.progress_percent = m.success ? 100 : -1;
-					m_state.progress_log.push_back(m.message);
+					m_state.progress_log.push_back({m.success ? LogEntry::Level::Success : LogEntry::Level::Error, m.message});
 
 					// Notify registry of operation completion
 					if (m.success && m_state.m_snapshot_registry)
@@ -1642,7 +1649,7 @@ namespace instinctiv
 					// For now, log the error and auto-skip
 					// TODO M4.9: Show error decision dialog
 					spdlog::warn("Error during operation: {} - {}", m.message, m.context);
-					m_state.progress_log.push_back("[ERROR] " + m.message + ": " + m.context);
+					m_state.progress_log.push_back({LogEntry::Level::Error, m.message + ": " + m.context});
 
 					// Send SkipAll decision to continue
 					m_state.worker->post(DecisionResponse{ insti::IActionCallback::Decision::SkipAll });
@@ -1652,7 +1659,7 @@ namespace instinctiv
 					// For now, log and auto-continue (overwrite)
 					// TODO M4.9: Show file conflict dialog
 					spdlog::info("File conflict: {} ({})", m.path, m.action);
-					m_state.progress_log.push_back("[CONFLICT] " + m.path + " (" + m.action + ")");
+					m_state.progress_log.push_back({LogEntry::Level::Warning, "Conflict: " + m.path + " (" + m.action + ")"});
 
 					// Send Continue decision to overwrite
 					m_state.worker->post(DecisionResponse{ insti::IActionCallback::Decision::Continue });
@@ -1665,36 +1672,41 @@ namespace instinctiv
 
 					for (const auto& result : m.results)
 					{
+						LogEntry::Level level = LogEntry::Level::Info;
 						const char* status_str = "[?]";
 						switch (result.status)
 						{
 						case insti::VerifyResult::Status::Match:
 							status_str = "[MATCH]";
+							level = LogEntry::Level::Success;
 							++match_count;
 							break;
 						case insti::VerifyResult::Status::Mismatch:
 							status_str = "[MISMATCH]";
+							level = LogEntry::Level::Warning;
 							++mismatch_count;
 							break;
 						case insti::VerifyResult::Status::Missing:
 							status_str = "[MISSING]";
+							level = LogEntry::Level::Error;
 							++missing_count;
 							break;
 						case insti::VerifyResult::Status::Extra:
 							status_str = "[EXTRA]";
+							level = LogEntry::Level::Warning;
 							++extra_count;
 							break;
 						}
 
-						m_state.progress_log.push_back(std::format("{} {}", status_str, result.detail));
+						m_state.progress_log.push_back({level, std::format("{} {}", status_str, result.detail)});
 
 						// List individual files (UI always shows details)
 						for (const auto& f : result.mismatched_files)
-							m_state.progress_log.push_back(std::format("    DIFFER: {}", f));
+							m_state.progress_log.push_back({LogEntry::Level::Warning, std::format("    DIFFER: {}", f)});
 						for (const auto& f : result.missing_files)
-							m_state.progress_log.push_back(std::format("    MISSING: {}", f));
+							m_state.progress_log.push_back({LogEntry::Level::Error, std::format("    MISSING: {}", f)});
 						for (const auto& f : result.extra_files)
-							m_state.progress_log.push_back(std::format("    EXTRA: {}", f));
+							m_state.progress_log.push_back({LogEntry::Level::Warning, std::format("    EXTRA: {}", f)});
 
 						// Aggregate file counts
 						total_file_match += result.file_match_count;
@@ -1704,23 +1716,23 @@ namespace instinctiv
 					}
 
 					// Summary
-					m_state.progress_log.push_back("");
-					m_state.progress_log.push_back(std::format("Resource summary: {} match, {} mismatch, {} missing, {} extra",
-						match_count, mismatch_count, missing_count, extra_count));
+					m_state.progress_log.push_back({LogEntry::Level::Info, ""});
+					m_state.progress_log.push_back({LogEntry::Level::Info, std::format("Resource summary: {} match, {} mismatch, {} missing, {} extra",
+						match_count, mismatch_count, missing_count, extra_count)});
 
 					if (total_file_match > 0 || total_file_mismatch > 0 || total_file_missing > 0 || total_file_extra > 0)
 					{
-						m_state.progress_log.push_back(std::format("File summary: {} match, {} differ, {} missing, {} extra",
-							total_file_match, total_file_mismatch, total_file_missing, total_file_extra));
+						m_state.progress_log.push_back({LogEntry::Level::Info, std::format("File summary: {} match, {} differ, {} missing, {} extra",
+							total_file_match, total_file_mismatch, total_file_missing, total_file_extra)});
 					}
 
 					// Overall judgment
 					if (mismatch_count == 0 && missing_count == 0 && extra_count == 0)
-						m_state.progress_log.push_back("Status: INSTALLED");
+						m_state.progress_log.push_back({LogEntry::Level::Success, "Status: INSTALLED"});
 					else if (match_count == 0)
-						m_state.progress_log.push_back("Status: NOT INSTALLED");
+						m_state.progress_log.push_back({LogEntry::Level::Error, "Status: NOT INSTALLED"});
 					else
-						m_state.progress_log.push_back("Status: PARTIALLY INSTALLED");
+						m_state.progress_log.push_back({LogEntry::Level::Warning, "Status: PARTIALLY INSTALLED"});
 
 					m_state.progress_phase = "Complete";
 					m_state.progress_percent = 100;
@@ -1809,8 +1821,8 @@ namespace instinctiv
 		m_state.progress_detail = "";
 		m_state.progress_percent = -1;
 		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Verifying: " + project->project_name());
-		m_state.progress_log.push_back("(Project verification - checking resource existence)");
+		m_state.progress_log.push_back({LogEntry::Level::Info, "Verifying: " + project->project_name()});
+		m_state.progress_log.push_back({LogEntry::Level::Info, "(Project verification - checking resource existence)"});
 		m_state.show_progress_dialog = true;
 
 		if (m_state.active_blueprint)
@@ -1903,9 +1915,9 @@ namespace instinctiv
 		m_state.progress_detail = "";
 		m_state.progress_percent = -1;
 		m_state.progress_log.clear();
-		m_state.progress_log.push_back("Verifying: " + instance->project_name());
-		m_state.progress_log.push_back("(Instance verification - comparing file contents)");
-		m_state.progress_log.push_back("Against: " + instance->m_snapshot_path);
+		m_state.progress_log.push_back({LogEntry::Level::Info, "Verifying: " + instance->project_name()});
+		m_state.progress_log.push_back({LogEntry::Level::Info, "(Instance verification - comparing file contents)"});
+		m_state.progress_log.push_back({LogEntry::Level::Info, "Against: " + instance->m_snapshot_path});
 		m_state.show_progress_dialog = true;
 
 		if (m_state.active_blueprint)
@@ -1917,96 +1929,121 @@ namespace instinctiv
 		m_state.worker->post(StartVerify{ m_state.m_snapshot_registry, instance, instance->m_snapshot_path });
 	}
 
-	// Progress dialog during operations
-	void Instinctiv::render_progress_dialog()
+	// Progress view - replaces main content during operations
+	void Instinctiv::render_progress_view()
 	{
-		if (!m_state.show_progress_dialog)
-			return;
+		// Header with operation name
+		ImGui::Text("%s", m_state.progress_operation.c_str());
+		ImGui::Separator();
+		ImGui::Spacing();
 
-		ConstrainDialogToWindow(ImVec2(500, 350));
+		// Current phase
+		ImGui::Text("Phase: %s", m_state.progress_phase.c_str());
 
-		bool open = true;
-		ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
-
-		std::string title = m_state.progress_operation + " Progress";
-		if (ImGui::Begin(title.c_str(), &open, flags))
+		// Current item
+		if (!m_state.progress_detail.empty())
 		{
-			// Current phase
-			ImGui::Text("Phase: %s", m_state.progress_phase.c_str());
+			ImGui::TextWrapped("Current: %s", m_state.progress_detail.c_str());
+		}
 
-			// Current item
-			if (!m_state.progress_detail.empty())
+		// Progress bar
+		ImGui::Spacing();
+		if (m_state.progress_percent >= 0)
+		{
+			ImGui::ProgressBar(m_state.progress_percent / 100.0f, ImVec2(-1, 0));
+		}
+		else
+		{
+			// Indeterminate progress - animate
+			static float progress_anim = 0.0f;
+			progress_anim += ImGui::GetIO().DeltaTime * 0.5f;
+			if (progress_anim > 1.0f) progress_anim = 0.0f;
+			ImGui::ProgressBar(progress_anim, ImVec2(-1, 0), "");
+		}
+
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		// Log area with colored text
+		ImGui::Text("Log:");
+
+		// Calculate available height for log area (leave room for buttons)
+		float available_height = ImGui::GetContentRegionAvail().y - 35;
+
+		// Colors for different log levels
+		const ImVec4 colorInfo(0.8f, 0.8f, 0.8f, 1.0f);     // Light gray
+		const ImVec4 colorWarning(1.0f, 0.8f, 0.2f, 1.0f);  // Yellow/orange
+		const ImVec4 colorError(1.0f, 0.4f, 0.4f, 1.0f);    // Red
+		const ImVec4 colorSuccess(0.4f, 1.0f, 0.4f, 1.0f);  // Green
+
+		// Scrolling child region for log
+		if (ImGui::BeginChild("##ProgressLogChild", ImVec2(-FLT_MIN, available_height), ImGuiChildFlags_Borders))
+		{
+			for (const auto& entry : m_state.progress_log)
 			{
-				ImGui::TextWrapped("Current: %s", m_state.progress_detail.c_str());
-			}
-
-			// Progress bar
-			ImGui::Spacing();
-			if (m_state.progress_percent >= 0)
-			{
-				ImGui::ProgressBar(m_state.progress_percent / 100.0f, ImVec2(-1, 0));
-			}
-			else
-			{
-				// Indeterminate progress - animate
-				static float progress_anim = 0.0f;
-				progress_anim += ImGui::GetIO().DeltaTime * 0.5f;
-				if (progress_anim > 1.0f) progress_anim = 0.0f;
-				ImGui::ProgressBar(progress_anim, ImVec2(-1, 0), "");
-			}
-
-			ImGui::Spacing();
-			ImGui::Separator();
-			ImGui::Spacing();
-
-			// Log area - use InputTextMultiline for selection/copy support
-			ImGui::Text("Log:");
-
-			// Build log text from entries
-			std::string log_text;
-			for (const auto& line : m_state.progress_log)
-			{
-				if (!log_text.empty())
-					log_text += '\n';
-				log_text += line;
-			}
-
-			// Calculate available height for log area
-			float available_height = ImGui::GetContentRegionAvail().y - 30;
-
-			// InputTextMultiline with ReadOnly flag - allows selection and Ctrl+C
-			ImGui::InputTextMultiline("##ProgressLog", &log_text[0], log_text.size() + 1,
-				ImVec2(-FLT_MIN, available_height),
-				ImGuiInputTextFlags_ReadOnly);
-
-			// Cancel button
-			if (m_state.worker->is_busy())
-			{
-				if (ImGui::Button("Cancel", ImVec2(80, 0)))
+				ImVec4 color = colorInfo;
+				switch (entry.level)
 				{
-					m_state.worker->cancel();
-					m_state.progress_log.push_back("Cancelling...");
+				case LogEntry::Level::Warning: color = colorWarning; break;
+				case LogEntry::Level::Error: color = colorError; break;
+				case LogEntry::Level::Success: color = colorSuccess; break;
+				default: break;
 				}
+				ImGui::PushStyleColor(ImGuiCol_Text, color);
+				ImGui::TextWrapped("%s", entry.message.c_str());
+				ImGui::PopStyleColor();
 			}
-			else
+
+			// Auto-scroll to bottom when new content appears
+			if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 20.0f)
+				ImGui::SetScrollHereY(1.0f);
+		}
+		ImGui::EndChild();
+
+		// Buttons
+		if (m_state.worker->is_busy())
+		{
+			if (ImGui::Button("Cancel", ImVec2(80, 0)))
 			{
-				if (ImGui::Button("Close", ImVec2(80, 0)))
+				m_state.worker->cancel();
+				m_state.progress_log.push_back({LogEntry::Level::Warning, "Cancelling..."});
+			}
+		}
+		else
+		{
+			if (ImGui::Button("Close", ImVec2(80, 0)))
+			{
+				m_state.show_progress_dialog = false;
+				// Cleanup active blueprint
+				if (m_state.active_blueprint)
 				{
-					open = false;
+					m_state.active_blueprint->release(REFCOUNT_DEBUG_ARGS);
+					m_state.active_blueprint = nullptr;
 				}
 			}
 		}
-		ImGui::End();
 
-		if (!open)
+		ImGui::SameLine();
+		if (ImGui::Button("Copy Log", ImVec2(80, 0)))
 		{
-			m_state.show_progress_dialog = false;
-			// Cleanup active blueprint
-			if (m_state.active_blueprint)
+			// Build plain text log for clipboard
+			std::string clipboard_text;
+			for (const auto& entry : m_state.progress_log)
 			{
-				m_state.active_blueprint->release(REFCOUNT_DEBUG_ARGS);
-				m_state.active_blueprint = nullptr;
+				if (!clipboard_text.empty())
+					clipboard_text += '\n';
+				// Add prefix based on level
+				switch (entry.level)
+				{
+				case LogEntry::Level::Warning: clipboard_text += "[WARN] "; break;
+				case LogEntry::Level::Error: clipboard_text += "[ERROR] "; break;
+				case LogEntry::Level::Success: clipboard_text += "[OK] "; break;
+				default: break;
+				}
+				clipboard_text += entry.message;
 			}
+			ImGui::SetClipboardText(clipboard_text.c_str());
 		}
 	}
 
@@ -2227,8 +2264,8 @@ namespace instinctiv
 				m_state.progress_detail.clear();
 				m_state.progress_percent = -1;
 				m_state.progress_log.clear();
-				m_state.progress_log.push_back("Starting backup: " + m_backupProject->project_name());
-				m_state.progress_log.push_back("Output: " + output_path.string());
+				m_state.progress_log.push_back({LogEntry::Level::Info, "Starting backup: " + m_backupProject->project_name()});
+				m_state.progress_log.push_back({LogEntry::Level::Info, "Output: " + output_path.string()});
 
 				// Start backup on worker thread with user-specified options
 				m_state.worker->post(StartBackup{
@@ -2755,7 +2792,7 @@ namespace instinctiv
 				m_state.progress_detail = "";
 				m_state.progress_percent = -1;
 				m_state.progress_log.clear();
-				m_state.progress_log.push_back("Uninstalling: " + m_uninstallTarget->project_name());
+				m_state.progress_log.push_back({LogEntry::Level::Info, "Uninstalling: " + m_uninstallTarget->project_name()});
 				m_state.show_progress_dialog = true;
 
 				if (m_state.active_blueprint)
