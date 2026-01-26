@@ -45,6 +45,33 @@ static std::string FormatFileSize(uint64_t bytes);
 static std::string FormatTimestamp(std::chrono::system_clock::time_point tp);
 static std::string show_save_dialog(HWND hwnd, const char* filter, const char* default_name, const char* default_ext);
 
+// Helper to constrain dialog size and position within the main window
+static void ConstrainDialogToWindow(ImVec2 desiredSize, float padding = 20.0f)
+{
+	const ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImVec2 availableSize(viewport->Size.x - padding * 2, viewport->Size.y - padding * 2);
+
+	// Clamp size to available space
+	ImVec2 size(
+		(std::min)(desiredSize.x, availableSize.x),
+		(std::min)(desiredSize.y, availableSize.y)
+	);
+
+	// Calculate centered position, clamped to stay within bounds
+	ImVec2 center = viewport->GetCenter();
+	ImVec2 pos(
+		(std::max)(viewport->Pos.x + padding, center.x - size.x * 0.5f),
+		(std::max)(viewport->Pos.y + padding, center.y - size.y * 0.5f)
+	);
+
+	// Ensure right/bottom edges don't exceed bounds
+	pos.x = (std::min)(pos.x, viewport->Pos.x + viewport->Size.x - size.x - padding);
+	pos.y = (std::min)(pos.y, viewport->Pos.y + viewport->Size.y - size.y - padding);
+
+	ImGui::SetNextWindowSize(size, ImGuiCond_Appearing);
+	ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+}
+
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 constexpr std::string_view ALL_PROJECTS = "(All Projects)";
@@ -1896,8 +1923,7 @@ namespace instinctiv
 		if (!m_state.show_progress_dialog)
 			return;
 
-		ImGui::SetNextWindowSize(ImVec2(500, 350), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ConstrainDialogToWindow(ImVec2(500, 350));
 
 		bool open = true;
 		ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
@@ -2023,8 +2049,7 @@ namespace instinctiv
 			}
 		}
 
-		ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ConstrainDialogToWindow(ImVec2(400, 500));
 
 		bool open = true;
 		bool accepted = false;
@@ -2104,8 +2129,7 @@ namespace instinctiv
 		if (!m_showBackupDialog || !m_backupProject)
 			return;
 
-		ImGui::SetNextWindowSize(ImVec2(500, 220), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ConstrainDialogToWindow(ImVec2(500, 220));
 
 		bool open = true;
 		bool do_backup = false;
@@ -2226,8 +2250,7 @@ namespace instinctiv
 		if (!m_showSettingsDialog)
 			return;
 
-		ImGui::SetNextWindowSize(ImVec2(500, 350), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ConstrainDialogToWindow(ImVec2(500, 350));
 
 		bool open = true;
 		bool save_settings = false;
@@ -2358,8 +2381,7 @@ namespace instinctiv
 		if (!m_showBlueprintEditor)
 			return;
 
-		ImGui::SetNextWindowSize(ImVec2(700, 550), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ConstrainDialogToWindow(ImVec2(700, 550));
 
 		bool open = true;
 		bool do_save = false;
@@ -2662,8 +2684,7 @@ namespace instinctiv
 		if (!m_showUninstallConfirm || !m_uninstallTarget)
 			return;
 
-		ImGui::SetNextWindowSize(ImVec2(550, 400), ImGuiCond_Appearing);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ConstrainDialogToWindow(ImVec2(550, 400));
 
 		bool open = true;
 		bool do_uninstall = false;
